@@ -21,7 +21,7 @@ operator_theme_map <- list(
    "idle_fingers" = "#6892B2",
    "clouds" = light_theme_operator,
    "clouds_midnight" = "#A53553",
-   "cobalt" = "#BED6FF",
+   "cobalt" = "#FF9D00",
    "dawn" = light_theme_operator,
    "eclipse" = light_theme_operator,
    "katzenmilch" = light_theme_operator,
