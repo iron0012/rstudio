@@ -41,6 +41,7 @@
     - Marks (m)
     - Quick find (/)
     - Support a subset of commands in :
+    - Use :help for documentation on available commands
 * Editor tabs in the source pane can now be rearranged
 * Support for multiple cursors via Ctrl+Alt+Up/Down
 * Alt+Enter to run code while retaining cursor position
@@ -109,6 +110,7 @@
 * Added global RStudio.Version function for getting basic version info
 * Diagram previews using the DiagrammeR package (requires recent version from GitHub).
 * Added Markers pane and sourceMarker API for externals tools (e.g. linters)
+* Enable specification of Sweave driver in Rnw magic comment
 
 ### Server
 
