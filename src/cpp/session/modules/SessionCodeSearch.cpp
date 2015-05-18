@@ -13,6 +13,9 @@
  *
  */
 
+#define RSTUDIO_DEBUG_LABEL "codesearch"
+// #define RSTUDIO_ENABLE_DEBUG_MACROS
+
 #include "SessionCodeSearch.hpp"
 
 #include <iostream>
@@ -46,15 +49,15 @@
 #include <session/SessionUserSettings.hpp>
 #include <session/SessionModuleContext.hpp>
 #include <session/SessionAsyncRProcess.hpp>
+#include <session/SessionRUtil.hpp>
+
 #include <session/projects/SessionProjects.hpp>
 
-#include "SessionAsyncRCompletions.hpp"
+#include "SessionAsyncPackageInformation.hpp"
 
 #include "SessionSource.hpp"
 #include "clang/DefinitionIndex.hpp"
 
-#define RSTUDIO_DEBUG_LABEL "codesearch"
-// #define RSTUDIO_ENABLE_DEBUG_MACROS
 #include <core/Macros.hpp>
 
 using namespace rstudio::core ;
@@ -322,7 +325,9 @@ public:
          }
          else
          {
-            DEBUG("- Already has this entry; skipping");
+            // We update the entry (because its associated index may
+            // have changed)
+            *it = entry;
          }
       }
 
@@ -340,7 +345,7 @@ public:
       DEBUG("");
    }
 
-private:
+public:
 
    iterator find_leaf(const Entry& entry)
    {
@@ -358,6 +363,8 @@ private:
       do_find_branch(entry, parent, &result);
       return result;
    }
+   
+private:
 
    void do_find_branch(const Entry& entry,
                        iterator parent,
@@ -411,6 +418,19 @@ public:
    }
 
    // COPYING: prohibited
+   
+   boost::shared_ptr<core::r_util::RSourceIndex> get(
+         const FilePath& filePath)
+   {
+      Entry entry(core::toFileInfo(filePath));
+      EntryTree::iterator it = pEntries_->find(entry);
+      if (pEntries_->is_valid(it) && it != pEntries_->end())
+      {
+         const Entry& entry = *it;
+         return entry.pIndex;
+      }
+      return boost::shared_ptr<core::r_util::RSourceIndex>();
+   }
 
    template <typename ForwardIterator>
    void enqueFiles(ForwardIterator begin, ForwardIterator end)
@@ -717,7 +737,29 @@ public:
          }
       }
    }
-
+   
+   void walkFiles(const FilePath& parentPath,
+                  boost::function<void(const Entry&)> operation,
+                  boost::function<bool(const Entry&)> filter = NULL)
+   {
+      Entry parentEntry(core::toFileInfo(parentPath));
+      EntryTree::iterator parentItr = pEntries_->find_branch(parentEntry);
+      if (parentItr == pEntries_->end())
+      {
+         LOG_ERROR_MESSAGE("Failed to find node '" + parentPath.absolutePath() + "'");
+         return;
+      }
+      
+      EntryTree::leaf_iterator it = parentItr.begin();
+      for (; pEntries_->is_valid(it); ++it)
+      {
+         if (filter && filter(*it))
+            continue;
+         
+         operation(*it);
+      }
+   }
+   
    void clear()
    {
       indexing_ = false;
@@ -810,7 +852,7 @@ private:
          pEntries_->insertEntry(entry);
 
          // kick off an update
-         r_completions::AsyncRCompletions::update();
+         r_packages::AsyncPackageInformationProcess::update();
       }
 
    }
@@ -874,6 +916,10 @@ private:
       return false;
 
    }
+   
+public:
+   
+   boost::shared_ptr<EntryTree> entries() const { return pEntries_; }
 
 private:
    // index entries
@@ -884,78 +930,63 @@ private:
    std::queue<core::system::FileChangeEvent> indexingQueue_;
 };
 
-// global source file index
-SourceFileIndex s_projectIndex;
+} // anonymous namespace
 
-// maintain an in-memory list of R source document indexes (for fast
-// code searching)
-class RSourceIndexes : boost::noncopyable
+void RSourceIndexes::initialize()
 {
-public:
-   RSourceIndexes() {}
-   virtual ~RSourceIndexes() {}
+   source_database::events().onDocUpdated.connect(
+       boost::bind(&RSourceIndexes::update, this, _1));
+   source_database::events().onDocRemoved.connect(
+       boost::bind(&RSourceIndexes::remove, this, _1));
+   source_database::events().onRemoveAll.connect(
+       boost::bind(&RSourceIndexes::removeAll, this));
+}
 
-   // COPYING: boost::noncopyable
+void RSourceIndexes::update(
+    boost::shared_ptr<session::source_database::SourceDocument> pDoc)
+{
+   // is this indexable? if not then bail
+   if (!pDoc->canContainRCode())
+      return;
 
-   void initialize()
+   // index the source
+   std::string code;
+   Error error = r_utils::extractRCode(pDoc->contents(), pDoc->type(), &code);
+   if (error)
    {
-      source_database::events().onDocUpdated.connect(
-                              boost::bind(&RSourceIndexes::update, this, _1));
-      source_database::events().onDocRemoved.connect(
-                              boost::bind(&RSourceIndexes::remove, this, _1));
-      source_database::events().onRemoveAll.connect(
-                              boost::bind(&RSourceIndexes::removeAll, this));
-   }
-
-   void update(boost::shared_ptr<session::source_database::SourceDocument> pDoc)
-   {
-      // is this indexable? if not then bail
-      if (!pDoc->canContainRCode())
-         return;
-      
-      // index the source
-      boost::shared_ptr<r_util::RSourceIndex> pIndex(
-                 new r_util::RSourceIndex(pDoc->path(), pDoc->contents()));
-      
-      // insert it
-      indexes_[pDoc->id()] = pIndex;
-
-      // kick off an update if necessary
-      r_completions::AsyncRCompletions::update();
+      LOG_ERROR(error);
+      return;
    }
    
-   boost::shared_ptr<r_util::RSourceIndex> get(const std::string& id)
+   boost::shared_ptr<r_util::RSourceIndex> pIndex(
+       new r_util::RSourceIndex(pDoc->path(), code));
+   
+   // add implicitly available packages
+   FilePath filePath = module_context::resolveAliasedPath(pDoc->path());
+   std::set<std::string> implicitlyAvailable =
+         r_utils::implicitlyAvailablePackages(filePath, pDoc->contents());
+   
+   BOOST_FOREACH(const std::string& package, implicitlyAvailable)
    {
-      if (indexes_.find(id) != indexes_.end())
-         return indexes_[id];
-      return boost::shared_ptr<r_util::RSourceIndex>();
+      pIndex->addInferredPackage(package);
    }
    
-   void remove(const std::string& id)
-   {
-      indexes_.erase(id);
-   }
+   // insert it
+   indexes_[pDoc->id()] = pIndex;
+   
+   // kick off an update if necessary
+   r_packages::AsyncPackageInformationProcess::update();
+}
 
-   void removeAll()
-   {
-      indexes_.clear();
-   }
+void RSourceIndexes::remove(const std::string& id)
+{
+   indexes_.erase(id);
+}
 
-   std::vector<boost::shared_ptr<r_util::RSourceIndex> > indexes()
-   {
-      std::vector<boost::shared_ptr<r_util::RSourceIndex> > indexes;
-      BOOST_FOREACH(const IndexMap::value_type& index, indexes_)
-      {
-         indexes.push_back(index.second);
-      }
-      return indexes;
-   }
-
-private:
-   typedef std::map<std::string, boost::shared_ptr<r_util::RSourceIndex> >
-                                                                    IndexMap;
-   IndexMap indexes_;
-};
+void RSourceIndexes::removeAll()
+{
+   indexes_.clear();
+}
 
 RSourceIndexes& rSourceIndex()
 {
@@ -963,7 +994,7 @@ RSourceIndexes& rSourceIndex()
    return instance;
 }
 
-
+namespace {
 
 // if we have a project active then restrict results to the project
 bool sourceDatabaseFilter(const r_util::RSourceIndex& index)
@@ -1052,7 +1083,16 @@ void searchSourceDatabase(const std::string& term,
    }
 }
 
+// global source file index
+SourceFileIndex s_projectIndex;
+
 } // end anonymous namespace
+
+boost::shared_ptr<r_util::RSourceIndex> getIndexedProjectFile(
+      const FilePath& filePath)
+{
+   return s_projectIndex.get(filePath);
+}
 
 void searchSource(const std::string& term,
                   std::size_t maxResults,
@@ -1246,12 +1286,12 @@ int scoreMatch(std::string const& suggestion,
       // More penalty for 'uninteresting' files
       if (suggestion == "RcppExports.R" ||
           suggestion == "RcppExports.cpp")
-         penalty += 3;
+         penalty += 6;
       
       // More penalty for 'uninteresting' extensions (e.g. .Rd)
       std::string extension = string_utils::getExtension(suggestion);
       if (boost::algorithm::to_lower_copy(extension) == ".rd")
-         penalty += 3;
+         penalty += 6;
 
       totalPenalty += penalty;
    }
@@ -1339,12 +1379,14 @@ public:
 
    SourceItem(Type type,
               const std::string& name,
+              const std::string& parentName,
               const std::string& extraInfo,
               const std::string& context,
               int line,
               int column)
       : type_(type),
         name_(name),
+        parentName_(parentName),
         extraInfo_(extraInfo),
         context_(context),
         line_(line),
@@ -1356,6 +1398,7 @@ public:
 
    Type type() const { return type_; }
    const std::string& name() const { return name_; }
+   const std::string& parentName() const { return parentName_; }
    const std::string& extraInfo() const { return extraInfo_; }
    const std::string& context() const { return context_; }
    int line() const { return line_; }
@@ -1364,6 +1407,7 @@ public:
 private:
    Type type_;
    std::string name_;
+   std::string parentName_;
    std::string extraInfo_;
    std::string context_;
    int line_;
@@ -1410,6 +1454,7 @@ SourceItem fromRSourceItem(const r_util::RSourceItem& rSourceItem)
    // return source item
    return SourceItem(type,
                      rSourceItem.name(),
+                     "",
                      extraInfo,
                      rSourceItem.context(),
                      rSourceItem.line(),
@@ -1431,6 +1476,7 @@ SourceItem fromCppDefinition(const clang::CppDefinition& cppDefinition)
       break;
    case CppClassDefinition:
    case CppStructDefinition:
+   case CppTypedefDefinition:
       type = SourceItem::Class;
       break;
    case CppEnumDefinition:
@@ -1447,12 +1493,14 @@ SourceItem fromCppDefinition(const clang::CppDefinition& cppDefinition)
       break;
    default:
       type = SourceItem::None;
+      break;
    }
 
    // return source item
    return SourceItem(
       type,
       cppDefinition.name,
+      cppDefinition.parentName,
       "",
       module_context::createAliasedPath(cppDefinition.location.filePath),
       safe_convert::numberTo<int>(cppDefinition.location.line, 1),
@@ -1573,6 +1621,7 @@ Error searchCode(const json::JsonRpcRequest& request,
    json::Object src;
    src["type"] = toJsonArray<int>(srcItemsFiltered, &SourceItem::type);
    src["name"] = toJsonArray<std::string>(srcItemsFiltered, &SourceItem::name);
+   src["parent_name"] = toJsonArray<std::string>(srcItemsFiltered, &SourceItem::parentName);
    src["extra_info"] = toJsonArray<std::string>(srcItemsFiltered, &SourceItem::extraInfo);
    src["context"] = toJsonArray<std::string>(srcItemsFiltered, &SourceItem::context);
    src["line"] = toJsonArray<int>(srcItemsFiltered, &SourceItem::line);
@@ -2216,50 +2265,6 @@ SEXP rs_scoreMatches(SEXP suggestionsSEXP,
    return r::sexp::create(scores, &protect);
 }
 
-SEXP rs_getSourceFileLibraryCompletions(SEXP packagesSEXP)
-{
-   using namespace rstudio::core::r_util;
-
-   std::vector<std::string> packages;
-   if (!r::sexp::fillVectorString(packagesSEXP, &packages))
-      return R_NilValue;
-
-   r::sexp::Protect protect;
-   r::sexp::ListBuilder parent(&protect);
-   
-   for (std::vector<std::string>::const_iterator it = packages.begin();
-        it != packages.end();
-        ++it)
-   {
-      AsyncLibraryCompletions completions =
-            RSourceIndex::getCompletions(*it);
-      
-      r::sexp::ListBuilder builder(&protect);
-      builder.add("exports", completions.exports);
-      builder.add("types", completions.types);
-      builder.add("functions", completions.functions);
-      
-      parent.add(*it, static_cast<SEXP>(builder));
-   }
-   
-   return parent;
-}
-
-SEXP rs_updateSourceFileLibraryCompletions(SEXP documentIdSEXP)
-{
-   std::string documentId = r::sexp::asString(documentIdSEXP);
-   boost::shared_ptr<core::r_util::RSourceIndex> index = rSourceIndex().get(documentId);
-   
-   if (index == NULL)
-      return R_NilValue;
-
-   r::sexp::Protect protect;
-   r_completions::AsyncRCompletions::update();
-
-   return r::sexp::create(true, &protect);
-   
-}
-
 inline SEXP pathResultsSEXP(std::vector<std::string> const& paths,
                             bool moreAvailable)
 {
@@ -2267,7 +2272,7 @@ inline SEXP pathResultsSEXP(std::vector<std::string> const& paths,
    r::sexp::ListBuilder builder(&protect);
    builder.add("paths", paths);
    builder.add("more_available", moreAvailable);
-   return builder;
+   return r::sexp::create(builder, &protect);
 }
 
 SEXP rs_listIndexedFiles(SEXP termSEXP, SEXP absolutePathSEXP, SEXP maxResultsSEXP)
@@ -2365,22 +2370,6 @@ SEXP rs_viewFunction(SEXP functionSEXP, SEXP nameSEXP, SEXP namespaceSEXP)
    return R_NilValue;
 }
 
-SEXP rs_listInferredPackages(SEXP documentIdSEXP)
-{
-   std::string documentId = r::sexp::asString(documentIdSEXP);
-   boost::shared_ptr<core::r_util::RSourceIndex> index = rSourceIndex().get(documentId);
-
-   // NOTE: can occur when user edits file not in source index
-   if (index == NULL)
-      return R_NilValue;
-   
-   std::set<std::string> pkgs = index->getInferredPackages();
-   
-   r::sexp::Protect protect;
-   return r::sexp::create(pkgs, &protect);
-   
-}
-
 } // anonymous namespace
    
 Error initialize()
@@ -2422,21 +2411,6 @@ Error initialize()
             (DL_FUNC) rs_listIndexedFilesAndFolders,
             3);
    
-   r::routines::registerCallMethod(
-            "rs_listInferredPackages",
-            (DL_FUNC) rs_listInferredPackages,
-            1);
-   
-   r::routines::registerCallMethod(
-            "rs_getSourceFileLibraryCompletions",
-            (DL_FUNC) rs_getSourceFileLibraryCompletions,
-            1);
-   
-   r::routines::registerCallMethod(
-            "rs_updateSourceFileLibraryCompletions",
-            (DL_FUNC) rs_updateSourceFileLibraryCompletions,
-            1);
-
    // initialize r source indexes
    rSourceIndex().initialize();
    
@@ -2453,6 +2427,46 @@ Error initialize()
    return initBlock.execute();
 }
 
+namespace callbacks {
+
+void addAllProjectSymbols(const Entry& entry,
+                          std::set<std::string>* pSymbols)
+{
+   if (!entry.hasIndex())
+      return;
+   
+   const std::vector<r_util::RSourceItem>& items = entry.pIndex->items();
+   BOOST_FOREACH(const r_util::RSourceItem& item, items)
+   {
+      pSymbols->insert(string_utils::strippedOfQuotes(item.name()));
+   } 
+}
+
+} // namespace callbacks
+
+void addAllProjectSymbols(std::set<std::string>* pSymbols)
+{
+   FilePath buildTarget = projects::projectContext().buildTargetPath();
+   
+   if (!buildTarget.empty())
+      s_projectIndex.walkFiles(
+               buildTarget,
+               boost::bind(callbacks::addAllProjectSymbols, _1, pSymbols));
+   
+   // Add in symbols made available as part of registration of native routines,
+   // if this is a package project.
+   if (projects::projectContext().isPackageProject())
+   {
+      std::string pkgName = projects::projectContext().packageInfo().name();
+      std::vector<std::string> nativeRoutineNames;
+      r::exec::RFunction getNativeSymbols(".rs.getNativeSymbols");
+      getNativeSymbols.addParam(pkgName);
+      Error error = getNativeSymbols.call(&nativeRoutineNames);
+      if (error)
+         LOG_ERROR(error);
+      pSymbols->insert(nativeRoutineNames.begin(), nativeRoutineNames.end());
+   }
+}
 
 } // namespace code_search
 } // namespace modules

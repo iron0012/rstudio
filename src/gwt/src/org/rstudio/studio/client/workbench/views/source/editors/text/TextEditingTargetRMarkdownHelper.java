@@ -63,6 +63,7 @@ import org.rstudio.studio.client.rmarkdown.model.YamlTree;
 import org.rstudio.studio.client.server.ServerError;
 import org.rstudio.studio.client.server.ServerRequestCallback;
 import org.rstudio.studio.client.server.Void;
+import org.rstudio.studio.client.server.VoidServerRequestCallback;
 import org.rstudio.studio.client.workbench.model.Session;
 import org.rstudio.studio.client.workbench.prefs.model.UIPrefs;
 import org.rstudio.studio.client.workbench.views.files.model.FilesServerOperations;
@@ -117,8 +118,7 @@ public class TextEditingTargetRMarkdownHelper
    {
       if (extendedType.length() == 0 && 
           fileType.isMarkdown() &&
-          !contents.contains("<!-- rmarkdown v1 -->") && 
-          session_.getSessionInfo().getRMarkdownPackageAvailable())
+          useRMarkdownV2(contents))
       {
          return "rmarkdown";
       }
@@ -293,6 +293,31 @@ public class TextEditingTargetRMarkdownHelper
          }
       });
    }
+   
+   
+   public void prepareForRmdChunkExecution(String id, 
+                                        String contents,
+                                        final Command onExecuteChunk)
+   {
+      // if this is R Markdown v2 then look for params
+      if (useRMarkdownV2(contents))
+      {
+         server_.prepareForRmdChunkExecution(id, 
+                                             new VoidServerRequestCallback() {
+            
+            @Override
+            protected void onCompleted()
+            {
+               onExecuteChunk.execute();
+            }
+         });
+      }
+      else
+      {
+         onExecuteChunk.execute();
+      }
+   }
+  
    
    public boolean verifyPrerequisites(WarningBarDisplay display,
                                       TextFileType fileType)
@@ -516,6 +541,125 @@ public class TextEditingTargetRMarkdownHelper
       return yamlTree.toString();
    }
    
+   public void replaceOutputFormatOptions(final String yaml, 
+         final String format, final RmdFrontMatterOutputOptions options, 
+         final OperationWithInput<String> onCompleted)
+   {
+      server_.convertToYAML(options, new ServerRequestCallback<RmdYamlResult>()
+      {
+         @Override
+         public void onResponseReceived(RmdYamlResult result)
+         {
+            boolean isDefault = options.getOptionList().length() == 0;
+            YamlTree yamlTree = new YamlTree(yaml);
+            YamlTree optionTree = new YamlTree(result.getYaml());
+            // add the output key if needed
+            if (!yamlTree.containsKey(RmdFrontMatter.OUTPUT_KEY))
+            {
+               yamlTree.addYamlValue(null, RmdFrontMatter.OUTPUT_KEY, 
+                     RmdOutputFormat.OUTPUT_HTML_DOCUMENT);
+            }
+            String treeFormat = yamlTree.getKeyValue(RmdFrontMatter.OUTPUT_KEY);
+
+            if (treeFormat.equals(format))
+            {
+               // case 1: the output format is a simple format and we're not
+               // changing to a different format
+
+               if (isDefault)
+               {
+                  // 1-a: if all options are still at their defaults, leave
+                  // untouched
+               }
+               else
+               {
+                  // 1-b: not all options are at defaults; replace the simple
+                  // format with an option list
+                  yamlTree.setKeyValue(RmdFrontMatter.OUTPUT_KEY, "");
+                  yamlTree.addYamlValue(RmdFrontMatter.OUTPUT_KEY, format, "");
+                  yamlTree.setKeyValue(format, optionTree);
+               }
+            }
+            else if (treeFormat.length() > 0)
+            {
+               // case 2: the output format is a simple format and we are 
+               // changing it
+               if (isDefault)
+               {
+                  // case 2-a: change one simple format to another 
+                  yamlTree.setKeyValue(RmdFrontMatter.OUTPUT_KEY, format);
+               }
+               
+               else
+               {
+                  // case 2-b: change a simple format to a complex one
+                  yamlTree.setKeyValue(RmdFrontMatter.OUTPUT_KEY, "");
+                  yamlTree.addYamlValue(RmdFrontMatter.OUTPUT_KEY, format, "");
+                  yamlTree.setKeyValue(format, optionTree);
+               }
+            }
+            else
+            {
+               // case 3: the output format is already not simple
+               treeFormat = yamlTree.getKeyValue(format);
+               
+               if (treeFormat.equals(RmdFrontMatter.DEFAULT_FORMAT))
+               {
+                  if (isDefault)
+                  {
+                     // case 3-a: still at default settings
+                  }
+                  else
+                  {
+                     // case 3-b: default to complex
+                     yamlTree.setKeyValue(format, optionTree);
+                  }
+               }
+               else
+               {
+                  if (isDefault)
+                  {
+                     // case 3-c: complex to default
+                     if (yamlTree.getChildKeys(
+                           RmdFrontMatter.OUTPUT_KEY).size() == 1)
+                     {
+                        // case 3-c-i: only one format, and has default settings
+                        yamlTree.clearChildren(RmdFrontMatter.OUTPUT_KEY);
+                        yamlTree.setKeyValue(RmdFrontMatter.OUTPUT_KEY, format);
+                     }
+                     else
+                     {
+                        // case 3-c-i: multiple formats, this one's becoming
+                        // the default
+                        yamlTree.clearChildren(format);
+                        yamlTree.setKeyValue(format, RmdFrontMatter.DEFAULT_FORMAT);
+                     }
+                  }
+                  else
+                  {
+                     // case 3-d: complex to complex
+                     if (!yamlTree.containsKey(format))
+                     {
+                        yamlTree.addYamlValue(RmdFrontMatter.OUTPUT_KEY, 
+                              format, "");
+                     }
+                     yamlTree.setKeyValue(format, optionTree);
+                  }
+               }
+            }
+
+            yamlTree.reorder(Arrays.asList(format));
+            onCompleted.execute(yamlTree.toString());
+         }
+         @Override
+         public void onError(ServerError error)
+         {
+            // if we fail, return the unmodified YAML
+            onCompleted.execute(yaml);
+         }
+      });
+   }
+   
    public void getTemplateContent(
          final RmdChosenTemplate template, 
          final OperationWithInput<String> onContentReceived)
@@ -538,6 +682,24 @@ public class TextEditingTargetRMarkdownHelper
          });
    }
    
+   public void addAdditionalResourceFiles(String yaml, 
+         final ArrayList<String> files, 
+         final CommandWithArg<String> onCompleted)
+   {
+      convertFromYaml(yaml, new CommandWithArg<RmdYamlData>() 
+      {
+         @Override
+         public void execute(RmdYamlData arg)
+         {
+            if (!arg.parseSucceeded())
+               onCompleted.execute(null);
+            else
+               addAdditionalResourceFiles(arg.getFrontMatter(), files, 
+                     onCompleted);
+         }
+      });
+   }
+
    // Private methods ---------------------------------------------------------
    
    private void cleanAndCreateTemplate(final RmdChosenTemplate template, 
@@ -669,6 +831,24 @@ public class TextEditingTargetRMarkdownHelper
       display.showWarningBar(feature + " requires the " +
                              "knitr package (version " + requiredVersion + 
                              " or higher)");
+   }
+   
+   private void addAdditionalResourceFiles(RmdFrontMatter frontMatter,
+         ArrayList<String> additionalFiles, 
+         CommandWithArg<String> onCompleted)
+   {
+      for (String file: additionalFiles)
+      {
+         frontMatter.addResourceFile(file);
+      }
+
+      frontMatterToYAML(frontMatter, null, onCompleted);
+   }
+   
+   private boolean useRMarkdownV2(String contents)
+   {
+      return !contents.contains("<!-- rmarkdown v1 -->") && 
+              session_.getSessionInfo().getRMarkdownPackageAvailable();
    }
    
    private Session session_;

@@ -27,6 +27,7 @@ import org.rstudio.core.client.regex.Pattern.ReplaceOperation;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 
@@ -192,11 +193,8 @@ public class StringUtil
 
    public static String toRSymbolName(String name)
    {
-      if (!name.matches("^[a-zA-Z_.][a-zA-Z0-9_.]*$")
-          || isRKeyword(name))
-      {
+      if (!RegexUtil.isSyntacticRIdentifier(name) || isRKeyword(name))
          return "`" + name + "`";
-      }
       else
          return name;
    }
@@ -507,6 +505,14 @@ public class StringUtil
          return input;
       return input.substring(0, 1).toUpperCase() + input.substring(1); 
    }
+   
+   public static final native String capitalizeAllWords(String input)
+   /*-{
+      return input.replace(
+         /(?:^|\s)\S/g,
+         function(x) { return x.toUpperCase(); }
+      );
+   }-*/;
    
    public static int countMatches(String line, char chr)
    {
@@ -888,7 +894,15 @@ public class StringUtil
          matchIndex = string.indexOf(ch, matchIndex + 1);
       }
       return indices;
-      
+   }
+   
+   @SuppressWarnings("deprecation") // GWT emulation only provides isSpace
+   public static boolean isWhitespace(String string)
+   {
+      for (int i = 0; i < string.length(); i++)
+         if (!Character.isSpace(string.charAt(i)))
+            return false;
+      return true;
    }
    
    private static final String[] LABELS = {
@@ -898,6 +912,33 @@ public class StringUtil
          "GB",
          "TB"
    };
+   
+   public static boolean isComplementOf(String self, String other)
+   {
+      return COMPLEMENTS.get(self).equals(other);
+   }
+   
+   private static final HashMap<String, String> makeComplementsMap()
+   {
+      HashMap<String, String> map = new HashMap<String, String>();
+      
+      map.put("[", "]");
+      map.put("]", "[");
+      
+      map.put("<", ">");
+      map.put(">", "<");
+      
+      map.put("{", "}");
+      map.put("}", "{");
+      
+      map.put("(", ")");
+      map.put(")", "(");
+      return map;
+   }
+   
+   public static final HashMap<String, String> COMPLEMENTS =
+         makeComplementsMap();
+   
    private static final NumberFormat FORMAT = NumberFormat.getFormat("0.#");
    private static final NumberFormat PRETTY_NUMBER_FORMAT = NumberFormat.getFormat("#,##0.#####");
    private static final DateTimeFormat DATE_FORMAT

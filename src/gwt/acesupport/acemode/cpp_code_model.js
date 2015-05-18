@@ -28,7 +28,8 @@ var CppScopeManager = require("mode/cpp_scope_tree").CppScopeManager;
 var getVerticallyAlignFunctionArgs = require("mode/r_code_model").getVerticallyAlignFunctionArgs;
 var Utils = require("mode/utils");
 
-var CppCodeModel = function(session, tokenizer, statePattern, codeBeginPattern) {
+var CppCodeModel = function(session, tokenizer,
+                            statePattern, codeBeginPattern, codeEndPattern) {
 
    this.$session = session;
    this.$doc = session.getDocument();
@@ -37,6 +38,7 @@ var CppCodeModel = function(session, tokenizer, statePattern, codeBeginPattern) 
    this.$tokens = new Array(this.$doc.getLength());
    this.$statePattern = statePattern;
    this.$codeBeginPattern = codeBeginPattern;
+   this.$codeEndPattern = codeEndPattern;
 
    this.$tokenUtils = new TokenUtils(
       this.$doc,
@@ -57,8 +59,14 @@ var CppCodeModel = function(session, tokenizer, statePattern, codeBeginPattern) 
 
 (function() {
 
+   var contains = Utils.contains;
+
    this.getTokenCursor = function() {
-      return new CppTokenCursor(this.$tokens);
+      return new CppTokenCursor(this.$tokens, 0, 0, this);
+   };
+
+   this.$tokenizeUpToRow = function(row) {
+      this.$tokenUtils.$tokenizeUpToRow(row);
    };
 
    var $walkBackForScope = function(cursor, that) {
@@ -70,17 +78,13 @@ var CppCodeModel = function(session, tokenizer, statePattern, codeBeginPattern) 
 
          // Bail on some specific tokens not found in
          // function type specifiers
-         if (["{", "}", ";"].some(function(x) {
-            return x === value;
-         }))
+         if (contains(["{", "}", ";"], value))
             break;
 
          // Bail on 'public:' etc.
          if (value === ":") {
             var prevValue = cursor.peekBwd().currentValue();
-            if (["public", "private", "protected"].some(function(x) {
-               return x === prevValue;
-            }))
+            if (contains(["public", "private", "protected"], prevValue))
                break;
          }
 
@@ -667,18 +671,15 @@ var CppCodeModel = function(session, tokenizer, statePattern, codeBeginPattern) 
 
                // Return on 'control flow' keywords.
                var value = tokenCursor.currentValue();
-               if (controlFlowKeywords.some(function(x) { return x === value; }))
-               {
-                  return tokenCursor.$row;
-               }
-
-               if (tokenCursor.$row === 0 && tokenCursor.$offset === 0) {
-                  return tokenCursor.$row;
-               }
                
-               if (!tokenCursor.moveToPreviousToken()) {
+               if (contains(controlFlowKeywords, value))
+                  return tokenCursor.$row;
+
+               if (tokenCursor.$row === 0 && tokenCursor.$offset === 0)
+                  return tokenCursor.$row;
+               
+               if (!tokenCursor.moveToPreviousToken())
                   return -1;
-               }
             }
 
             // Move backwards over matching parens.
@@ -689,9 +690,7 @@ var CppCodeModel = function(session, tokenizer, statePattern, codeBeginPattern) 
             if (tokenCursor.currentValue() === ":") {
 
                var prevValue = tokenCursor.peekBwd().currentValue();
-               if (["public", "private", "protected"].some(function(x) {
-                  return x === prevValue;
-               }))
+               if (contains(["public", "private", "protected"], prevValue))
                {
                   tokenCursor.moveToNextToken();
                   return tokenCursor.$row;
@@ -890,7 +889,9 @@ var CppCodeModel = function(session, tokenizer, statePattern, codeBeginPattern) 
       }
 
       // Indentation rules for comments
-      if (state == "comment" || state == "doc-start") {
+      if (Utils.endsWith(state, "comment") ||
+          Utils.endsWith(state, "doc-start"))
+      {
 
          // Choose indentation for the current line based on the position
          // of the cursor -- but make sure we only apply this if the
@@ -917,7 +918,7 @@ var CppCodeModel = function(session, tokenizer, statePattern, codeBeginPattern) 
       }
 
       // Rules for the 'general' state
-      if (state == "start") {
+      if (Utils.endsWith(state, "start")) {
 
          var match = null;
 
@@ -1232,11 +1233,12 @@ var CppCodeModel = function(session, tokenizer, statePattern, codeBeginPattern) 
          // Try token walking
          if (this.$tokenUtils.$tokenizeUpToRow(row + 2)) {
 
+            var tokens = new Array(this.$tokens.length);
+
             try {
                
                // Remove any trailing '\' tokens, then reapply them. This way, indentation
                // will work even in 'macro mode'.
-               var tokens = new Array(this.$tokens.length);
 
                for (var i = 0; i < this.$tokens.length; i++) {
                   if (this.$tokens[i] != null &&
@@ -1248,16 +1250,20 @@ var CppCodeModel = function(session, tokenizer, statePattern, codeBeginPattern) 
                   } 
                }
 
-               var tokenCursor = new CppTokenCursor(
-                  this.$tokens,
-                  row,
-                  this.$tokens[row].length - 1
-               );
-
+               var tokenCursor = this.getTokenCursor();
+               
                // If 'dontSubset' is false, then we want to plonk the token cursor
-               // on the first token before the cursor.
+               // on the first token before the cursor. Otherwise, we place it at
+               // the end of the current line
                if (!dontSubset)
+               {
                   tokenCursor.moveToPosition(cursor);
+               }
+               else
+               {
+                  tokenCursor.$row = row;
+                  tokenCursor.$offset = this.$tokens[row].length - 1;
+               }
 
                // If there is no token on this current line (this can occur when this code
                // is accessed by e.g. the matching brace offset code) then move back
@@ -1287,9 +1293,8 @@ var CppCodeModel = function(session, tokenizer, statePattern, codeBeginPattern) 
                if (startType === "constant" ||
                    startType === "keyword" ||
                    startType === "identifier" ||
-                   ["{", ")", ">", ":"].some(function(x) {
-                      return x === startValue;
-                   })) {
+                   contains(["{", ")", ">", ":"], startValue))
+               {
                   additionalIndent = tab;
                }
 
@@ -1416,9 +1421,9 @@ var CppCodeModel = function(session, tokenizer, statePattern, codeBeginPattern) 
                   }
 
                   // We hit a 'control flow' keyword ...
-                  if (["for", "while", "do", "try"].some(function(x) {
-                     return x === tokenCursor.currentValue();
-                  }))
+                  if (contains(
+                        ["for", "while", "do", "try"],
+                        tokenCursor.currentValue()))
                   {
                      // ... and the first token wasn't a semi-colon, then indent
                      if (startValue !== ";") {
@@ -1432,9 +1437,8 @@ var CppCodeModel = function(session, tokenizer, statePattern, codeBeginPattern) 
                   if (tokenCursor.currentValue() === ":") {
 
                      // ... preceeded by a class access modifier
-                     if (["public", "private", "protected"].some(function(x) {
-                        return x === peekOne.currentValue();
-                     }))
+                     if (contains(["public", "private", "protected"],
+                                  peekOne.currentValue()))
                      {
                         // Indent once relative to the 'public:'s indentation.
                         return this.$getIndent(lines[peekOne.$row]) + tab;

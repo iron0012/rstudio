@@ -359,6 +359,18 @@ void ProjectContext::setNextSessionProject(
    writeSetting(kNextSessionProject, nextSessionProject);
 }
 
+// switch to project path
+std::string ProjectContext::switchToProjectPath() const
+{
+   return readSetting(kSwitchToProject);
+}
+
+void ProjectContext::setSwitchToProjectPath(
+                                 const std::string& switchToProjectPath)
+{
+   writeSetting(kSwitchToProject, switchToProjectPath);
+}
+
 
 FilePath ProjectContext::lastProjectPath() const
 {
@@ -381,7 +393,7 @@ void ProjectContext::setLastProjectPath(const FilePath& lastProjectPath)
 void ProjectContext::onDeferredInit(bool newSession)
 {
    // kickoff file monitoring for this directory
-   using namespace boost;
+   using boost::bind;
    core::system::file_monitor::Callbacks cb;
    cb.onRegistered = bind(&ProjectContext::fileMonitorRegistered,
                           this, _1, _2);
@@ -708,8 +720,13 @@ Error ProjectContext::writeBuildOptions(const RProjectBuildOptions& options)
    return Success();
 }
 
+bool ProjectContext::isPackageProject()
+{
+   return r_util::isPackageDirectory(directory());
+}
+
 
 } // namespace projects
-} // namesapce session
+} // namespace session
 } // namespace rstudio
 

@@ -15,6 +15,8 @@
 package org.rstudio.studio.client.rsconnect.events;
 
 import org.rstudio.studio.client.rsconnect.model.RSConnectDeploymentRecord;
+import org.rstudio.studio.client.rsconnect.model.RSConnectPublishSettings;
+import org.rstudio.studio.client.rsconnect.model.RSConnectPublishSource;
 
 import com.google.gwt.event.shared.EventHandler;
 import com.google.gwt.event.shared.GwtEvent;
@@ -29,15 +31,15 @@ public class RSConnectDeployInitiatedEvent extends GwtEvent<RSConnectDeployIniti
    public static final GwtEvent.Type<RSConnectDeployInitiatedEvent.Handler> TYPE =
       new GwtEvent.Type<RSConnectDeployInitiatedEvent.Handler>();
    
-   public RSConnectDeployInitiatedEvent(String path, 
-                                        String sourceFile,
+   public RSConnectDeployInitiatedEvent(RSConnectPublishSource source,
+                                        RSConnectPublishSettings settings,
                                         boolean launchBrowser, 
                                         RSConnectDeploymentRecord record)
    {
-      path_ = path;
-      record_ = record;
-      sourceFile_ = sourceFile;
       launchBrowser_ = launchBrowser;
+      record_ = record;
+      settings_ = settings;
+      source_ = source;
    }
    
    public RSConnectDeploymentRecord getRecord()
@@ -45,19 +47,19 @@ public class RSConnectDeployInitiatedEvent extends GwtEvent<RSConnectDeployIniti
       return record_;
    }
    
-   public String getPath()
-   {
-      return path_; 
-   }
-   
-   public String getSourceFile()
-   {
-      return sourceFile_;
-   }
-   
    public boolean getLaunchBrowser()
    {
       return launchBrowser_; 
+   }
+   
+   public RSConnectPublishSettings getSettings()
+   {
+      return settings_;
+   }
+   
+   public RSConnectPublishSource getSource()
+   {
+      return source_;
    }
 
    @Override
@@ -72,8 +74,8 @@ public class RSConnectDeployInitiatedEvent extends GwtEvent<RSConnectDeployIniti
       return TYPE;
    }
    
-   private RSConnectDeploymentRecord record_;
-   private String path_;
-   private String sourceFile_;
-   private boolean launchBrowser_;
+   private final RSConnectDeploymentRecord record_;
+   private final boolean launchBrowser_;
+   private final RSConnectPublishSettings settings_;
+   private final RSConnectPublishSource source_;
 }

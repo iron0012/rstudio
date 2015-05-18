@@ -28,9 +28,6 @@ endif()
 if(NOT EXISTS "${RSTUDIO_DEPENDENCIES_DIR}/common/pandoc")
   message(FATAL_ERROR "pandoc not found (re-run install-dependencies script to install)")
 endif()
-if(NOT EXISTS "${RSTUDIO_DEPENDENCIES_DIR}/common/rmarkdown")
-  message(FATAL_ERROR "rmarkdown package not found (re-run install-dependencies script to install)")
-endif()
 if(NOT EXISTS "${RSTUDIO_DEPENDENCIES_DIR}/common/rsconnect")
   message(FATAL_ERROR "rsconnect package not found (re-run install-dependencies script to install)")
 endif()
@@ -44,11 +41,11 @@ else()
 endif()
 set(LIBCLANG_DIR "${RSTUDIO_DEPENDENCIES_DIR}/common/libclang/${LIBCLANG_VERSION}")
 if(NOT EXISTS "${LIBCLANG_DIR}")
-  message(FATAL_ERROR "liblang ${LIBCLANG_VERSION} not found  (re-run install-dependencies script to install)")
+  message(FATAL_ERROR "libclang ${LIBCLANG_VERSION} not found  (re-run install-dependencies script to install)")
 endif()
 set(LIBCLANG_HEADERS_DIR "${RSTUDIO_DEPENDENCIES_DIR}/common/libclang/builtin-headers")
 if(NOT EXISTS "${LIBCLANG_HEADERS_DIR}")
-  message(FATAL_ERROR "liblang builtin-headers not found  (re-run install-dependencies script to install)")
+  message(FATAL_ERROR "libclang builtin-headers not found  (re-run install-dependencies script to install)")
 endif()
 
 
@@ -72,6 +69,7 @@ set (SESSION_SOURCE_FILES
    SessionOptionsOverlay.cpp
    SessionPersistentState.cpp
    SessionPostback.cpp
+   SessionRUtil.cpp
    SessionSourceDatabase.cpp
    SessionSourceDatabaseSupervisor.cpp
    SessionUserSettings.cpp
@@ -81,12 +79,13 @@ set (SESSION_SOURCE_FILES
    modules/SessionAbout.cpp
    modules/SessionAgreement.cpp
    modules/SessionAskPass.cpp
-   modules/SessionAsyncRCompletions.cpp
+   modules/SessionAsyncPackageInformation.cpp
    modules/SessionAuthoring.cpp
    modules/SessionBreakpoints.cpp
    modules/SessionCodeSearch.cpp
    modules/SessionConsole.cpp
    modules/SessionDependencies.cpp
+   modules/SessionDiagnostics.cpp
    modules/SessionDirty.cpp
    modules/SessionErrors.cpp
    modules/SessionFiles.cpp
@@ -100,7 +99,6 @@ set (SESSION_SOURCE_FILES
    modules/SessionHistoryArchive.cpp
    modules/SessionHTMLPreview.cpp
    modules/SessionLimits.cpp
-   modules/SessionLinter.cpp
    modules/SessionLists.cpp
    modules/SessionMarkers.cpp
    modules/SessionPackages.cpp
@@ -110,9 +108,11 @@ set (SESSION_SOURCE_FILES
    modules/SessionProfiler.cpp
    modules/SessionRCompletions.cpp
    modules/SessionRHooks.cpp
+   modules/SessionRParser.cpp
    modules/SessionRPubs.cpp
    modules/SessionRSConnect.cpp
    modules/SessionShinyViewer.cpp
+   modules/SessionSnippets.cpp
    modules/SessionSource.cpp
    modules/SessionSpelling.cpp
    modules/SessionSVN.cpp
@@ -321,6 +321,7 @@ if(APPLE)
         ${SESSION_SYSTEM_LIBRARIES}
         ${MAC_APPKIT_LIBRARY})
 endif()
+
 target_link_libraries(rsession
    rstudio-core
    rstudio-core-hunspell
@@ -401,11 +402,6 @@ if (NOT RSTUDIO_SESSION_WIN64)
    install(FILES ${PANDOC_FILES}
            PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
            DESTINATION  ${RSTUDIO_INSTALL_BIN}/pandoc)
-
-   # install rmarkdown package
-   file(GLOB RMARKDOWN_PACKAGE "${RSTUDIO_DEPENDENCIES_DIR}/common/rmarkdown*.tar.gz")
-   install(FILES ${RMARKDOWN_PACKAGE}
-           DESTINATION ${RSTUDIO_INSTALL_SUPPORTING}/R/packages)
 
    # install rsconnect package
    file(GLOB RSCONNECT_PACKAGE "${RSTUDIO_DEPENDENCIES_DIR}/common/rsconnect*.tar.gz")

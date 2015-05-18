@@ -33,13 +33,16 @@ public interface RSConnectServerOperations
    void getRSConnectAppList(String accountName, String server,
                ServerRequestCallback<JsArray<RSConnectApplicationInfo>> requestCallback);
    
-   void getRSConnectDeployments(String dir, 
+   void getRSConnectDeployments(String sourceFile, String outputFile,
                ServerRequestCallback<JsArray<RSConnectDeploymentRecord>> requestCallback); 
    
-   void getDeploymentFiles (String dir, 
+   void getDeploymentFiles (String target, 
+               boolean asMultipleRmd,
                ServerRequestCallback<RSConnectDeploymentFiles> requestCallback);
    
-   void deployShinyApp(String dir, String file, String account, String server, String appName, 
+   void publishContent(RSConnectPublishSource source, 
+               String account, String server, String appName, 
+               RSConnectPublishSettings settings,
                ServerRequestCallback<Boolean> requestCallback);
 
    void validateServerUrl (String url, 
@@ -57,4 +60,7 @@ public interface RSConnectServerOperations
    
    void getLintResults(String target,
                 ServerRequestCallback<RSConnectLintResults> resultCallback);
+   
+   void getRmdPublishDetails(String target,
+                ServerRequestCallback<RmdPublishDetails> resultCallback);
 }

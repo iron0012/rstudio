@@ -23,7 +23,8 @@
 #include <boost/function.hpp>
 #include <boost/utility.hpp>
 #include <boost/regex.hpp>
-
+#include <boost/foreach.hpp>
+#include <boost/range/adaptors.hpp>
 #include <boost/algorithm/string/predicate.hpp>
 
 #include <core/Algorithm.hpp>
@@ -32,18 +33,11 @@
 #include <core/RegexUtils.hpp>
 
 #include <core/r_util/RTokenizer.hpp>
+#include <core/r_util/RFunctionInformation.hpp>
 
 namespace rstudio {
 namespace core {
 namespace r_util {
-
-struct AsyncLibraryCompletions
-{
-   std::string package;
-   std::vector<std::string> exports;
-   std::vector<int> types;
-   std::map< std::string, std::vector<std::string> > functions;
-};
 
 class RS4MethodParam
 {
@@ -77,7 +71,8 @@ public:
       None = 0,
       Function = 1,
       Method = 2,
-      Class = 3
+      Class = 3,
+      Variable = 4
    };
 
 public:
@@ -128,6 +123,7 @@ public:
    bool isFunction() const { return type_ == Function; }
    bool isMethod() const { return type_ == Method; }
    bool isClass() const { return type_ == Class; }
+   bool isVariable() const { return type_ == Variable; }
    const std::string& context() const { return context_; }
    const std::string& name() const { return name_; }
    const std::vector<RS4MethodParam>& signature() const { return signature_; }
@@ -273,6 +269,21 @@ public:
       return search(term, context_, prefixOnly, caseSensitive, out);
    }
    
+private:
+   RSourceItem noSuchItem_;
+   
+   const RSourceItem& get(const std::string& name,
+                          const RSourceItem::Type type = RSourceItem::Function)
+   {
+      BOOST_FOREACH(const RSourceItem& item, items_)
+      {
+         if (item.name() == name && item.type() == type)
+            return item;
+      }
+      
+      return noSuchItem_;
+   }
+   
 public:
 
    static const std::set<std::string>& getAllInferredPackages()
@@ -285,23 +296,59 @@ public:
       return inferredPkgNames_;
    }
    
-   static void addCompletions(const std::string& package,
-                              const AsyncLibraryCompletions& asyncCompletions)
+   static void addPackageInformation(const std::string& package,
+                                     const PackageInformation& info)
    {
-      s_completions_[package] = asyncCompletions;
+      s_packageInformation_[package] = info;
    }
 
-   static bool hasCompletions(const std::string& package)
+   static bool hasInformation(const std::string& package)
    {
-      return s_completions_.find(package) != s_completions_.end();
+      return s_packageInformation_.find(package) != s_packageInformation_.end();
    }
    
-   static const AsyncLibraryCompletions& getCompletions(const std::string& package)
+   typedef std::map<std::string, PackageInformation> PackageInformationDatabase;
+   static const PackageInformationDatabase& getPackageInformationDatabase()
    {
-      return s_completions_[package];
+      return s_packageInformation_;
+   }
+   
+   static const PackageInformation& getPackageInformation(const std::string& package)
+   {
+      return s_packageInformation_[package];
+   }
+   
+   static bool hasFunctionInformation(const std::string& func,
+                                      const std::string& pkg)
+   {
+      return s_packageInformation_[pkg].functionInfo.count(func);
+   }
+   
+   static const FunctionInformation& getFunctionInformation(
+         const std::string& func,
+         const std::string& pkg)
+   {
+      return s_packageInformation_[pkg].functionInfo[func];
+   }
+   
+   static const FunctionInformation& getFunctionInformationAnywhere(
+         const std::string& func,
+         bool* pLookupFailed)
+   {
+      for (PackageInformationDatabase::const_iterator it = s_packageInformation_.begin();
+           it != s_packageInformation_.end();
+           ++it)
+      {
+         const PackageInformation& pkgInfo = it->second;
+         if (pkgInfo.functionInfo.count(func))
+            return const_cast<FunctionInformationMap&>(pkgInfo.functionInfo)[func];
+      }
+      
+      *pLookupFailed = true;
+      return s_noSuchFunction_;
    }
 
-   static const std::vector<std::string> getAllUnindexedPackages()
+   static std::vector<std::string> getAllUnindexedPackages()
    {
       std::vector<std::string> result;
       typedef std::set<std::string>::const_iterator iterator_t;
@@ -309,7 +356,7 @@ public:
            it != s_allInferredPkgNames_.end();
            ++it)
       {
-         if (s_completions_.count(*it) == 0)
+         if (s_packageInformation_.count(*it) == 0)
             result.push_back(*it);
       }
       return result;
@@ -319,6 +366,44 @@ public:
    {
       inferredPkgNames_.insert(packageName);
       s_allInferredPkgNames_.insert(packageName);
+   }
+   
+   static void addGloballyInferredPackage(const std::string& pkgName)
+   {
+      s_allInferredPkgNames_.insert(pkgName);
+   }
+   
+   static void setImportedPackages(const std::set<std::string>& pkgNames)
+   {
+      s_importedPackages_.clear();
+      s_importedPackages_.insert(pkgNames.begin(), pkgNames.end());
+      s_allInferredPkgNames_.insert(pkgNames.begin(), pkgNames.end());
+   }
+   
+   static const std::set<std::string>& getImportedPackages()
+   {
+      return s_importedPackages_;
+   }
+   
+   typedef std::map< std::string, std::set<std::string> > ImportFromMap;
+   
+   static void setImportFromDirectives(const ImportFromMap& map)
+   {
+      s_importFromDirectives_ = map;
+      BOOST_FOREACH(const std::string& pkg, map | boost::adaptors::map_keys)
+      {
+         s_allInferredPkgNames_.insert(pkg);
+      }
+   }
+   
+   static ImportFromMap& getImportFromDirectives()
+   {
+      return s_importFromDirectives_;
+   }
+   
+   const std::vector<RSourceItem>& items() const
+   {
+      return items_;
    }
 
 private:
@@ -330,13 +415,15 @@ private:
    // but we share that state in a static variable (so that we can
    // cache and share across all indexes)
    std::set<std::string> inferredPkgNames_;
+   static std::set<std::string> s_importedPackages_;
+   static ImportFromMap s_importFromDirectives_;
    static std::set<std::string> s_allInferredPkgNames_;
    
    // NOTE: All source indexes share a set of completions
-   static std::map<std::string, AsyncLibraryCompletions> s_completions_;
+   static std::map<std::string, PackageInformation> s_packageInformation_;
+   static FunctionInformation s_noSuchFunction_;
    
 };
-
 
 } // namespace r_util
 } // namespace core 

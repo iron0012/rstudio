@@ -1,7 +1,7 @@
 #
-# SessionData.R
+# SessionDataViewer.R
 #
-# Copyright (C) 2009-12 by RStudio, Inc.
+# Copyright (C) 2009-15 by RStudio, Inc.
 #
 # Unless you have received this program directly from RStudio pursuant
 # to the terms of a commercial license agreement with RStudio, then
@@ -24,7 +24,7 @@
 .rs.addFunction("formatDataColumn", function(x, start, len, ...)
 {
    # extract the visible part of the column
-   col <- x[start:min(length(x), start+len)]
+   col <- x[start:min(NROW(x), start+len)]
 
    if (is.numeric(col)) {
      # show numbers as doubles
@@ -33,7 +33,20 @@
      # show everything else as characters
      col <- as.character(col)
    }
-   format(col, trim = TRUE, justify = "none", ...)
+
+   # remember which values are NA 
+   naVals <- is.na(col) 
+
+   # format all the values; this drops NAs (the na.encode option only preserves
+   # NA for character cols)
+   vals <- format(col, trim = TRUE, justify = "none", ...)
+
+   # restore NAs if there were any
+   if (any(naVals)) {
+     vals[naVals] <- NA
+   } 
+
+   vals
 })
 
 .rs.addFunction("describeCols", function(x, maxCols, maxFactors) 
@@ -116,6 +129,11 @@
         col_type <- "character"
         col_search_type <- "character"
       }
+      else if (is.logical(val))
+      {
+        col_type <- "boolean"
+        col_search_type <- "boolean"
+      }
     }
     list(
       col_name        = .rs.scalar(col_name),
@@ -150,7 +168,7 @@
 {
   rows <- 0
   tryCatch({
-    rows <- nrow(x)
+    rows <- NROW(x)
   }, error = function(e) {
     stop("Failed to determine rows for object of class '", class(x), "': ", 
          e$message)
@@ -165,7 +183,7 @@
 {
   cols <- 0
   tryCatch({
-    cols <- ncol(x)
+    cols <- NCOL(x)
   }, error = function(e) {
     stop("Failed to determine columns for object of class '", class(x), "': ", 
          e$message)
@@ -176,31 +194,113 @@
     cols
 })
 
-.rs.addFunction("toDataFrame", function(x, name) {
-  if (is.data.frame(x))
-    return(x)
-  frame <- NULL
-  # attempt to coerce to a data frame--this can throw errors in the case where
-  # we're watching a named object in an environment and the user replaces an
-  # object that can be coerced to a data frame with one that cannot
-  tryCatch(
-  {
-    frame <- as.data.frame(x)
-  },
-  error = function(e)
-  {
-  })
-  if (!is.null(frame))
-    names(frame)[names(frame) == "x"] <- name
-  frame
+.rs.addFunction("toDataFrame", function(x, name, flatten) {
+  # if it's not already a frame, coerce it to a frame
+  if (!is.data.frame(x)) {
+    frame <- NULL
+    # attempt to coerce to a data frame--this can throw errors in the case
+    # where we're watching a named object in an environment and the user
+    # replaces an object that can be coerced to a data frame with one that
+    # cannot
+    tryCatch(
+    {
+      # create a temporary frame to hold the value; this is necessary because
+      # "x" is a function argument and therefore a promise whose value won't
+      # be bound via substitute() below
+      coerced <- x
+
+      # perform the actual coercion in the global environment; this is 
+      # necessary because we want to honor as.data.frame overrides of packages
+      # which are loaded after tools:rstudio in the search path
+      frame <- eval(substitute(as.data.frame(coerced)), 
+                    envir = globalenv())
+    },
+    error = function(e)
+    {
+    })
+    
+    # as.data.frame uses the name of its argument to label unlabeled columns,
+    # so label these back to the original name
+    if (!is.null(frame))
+      names(frame)[names(frame) == "x"] <- name
+    x <- frame 
+  }
+
+  # if coercion was successful (or we started with a frame), flatten the frame
+  # if necessary and requested
+  if (is.data.frame(x)) {
+    if (!flatten) {
+      return(x)
+    }
+    frameCols <- .rs.frameCols(x)
+    if (length(frameCols) > 0) {
+      return(.rs.flattenFrame(x, frameCols))
+    } else {
+      return(x)
+    }
+  }
+})
+
+.rs.addFunction("frameCols", function(x) {
+  which(vapply(x, is.data.frame, TRUE))
+})
+
+.rs.addFunction("flattenFrame", function(x, framecols) {
+  while (length(framecols) > 0) {
+    framecol <- framecols[1]
+    newcols <- ncol(x[[framecol]])
+    if (identical(newcols, 0)) 
+    {
+      # remove columns consisting of empty frames
+      x[[framecol]] <- NULL
+    }
+    else
+    {
+      # recursive--are any columns in the nested frame themselves frames?
+      nestedFrameCols <- .rs.frameCols(x[[framecol]]) 
+      if (length(nestedFrameCols) > 0) {
+        x[[framecol]] <- .rs.flattenFrame(x[[framecol]], nestedFrameCols)
+
+        # readjust indices
+        newcols <- ncol(x[[framecol]])
+      }
+
+      # apply column names
+      cols <- x[[framecol]]
+      if (length(names(framecols)) > 0) {
+        names(cols) <- paste(names(framecol)[[1]], names(cols), sep = ".")
+      }
+
+      # replace other columns in place
+      if (framecol >= ncol(x))  {
+        x <- cbind(x[0:(framecol-1)], cols)
+      } else {
+        x <- cbind(x[0:(framecol-1)], cols, x[(framecol+1):ncol(x)])
+      }
+    }
+
+    # pop this frame off the list and adjust the other indices to account for
+    # the columns we just added, if any
+    framecols <- framecols[-1] + (max(newcols, 1) - 1) 
+  }
+  x
 })
 
 .rs.addFunction("applyTransform", function(x, filtered, search, col, dir) 
 {
+  # mark encoding on character inputs if not already marked
+  filtered <- vapply(filtered, function(colfilter) {
+    if (Encoding(colfilter) == "unknown") 
+      Encoding(colfilter) <- "UTF-8"
+    colfilter
+  }, "")
+  if (Encoding(search) == "unknown")
+    Encoding(search) <- "UTF-8"
+  
   # coerce argument to data frame--data.table objects (for example) report that
   # they're data frames, but don't actually support the subsetting operations
   # needed for search/sort/filter without an explicit cast
-  x <- as.data.frame(x)
+  x <- .rs.toDataFrame(x, "transformed", TRUE)
 
   # apply columnwise filters
   for (i in seq_along(filtered)) {
@@ -227,18 +327,26 @@
       else if (identical(filtertype, "character"))
       {
         # apply character filter: non-case-sensitive prefix
-        x <- x[grepl(filterval, x[[i]], ignore.case = TRUE), , drop = FALSE]
+        x <- x[grepl(tolower(filterval), tolower(x[[i]]), fixed = TRUE), , 
+               drop = FALSE]
       } 
       else if (identical(filtertype, "numeric"))
       {
         # apply numeric filter, range ("2-32") or equality ("15")
-        filterval <- as.numeric(strsplit(filterval, "-")[[1]])
+        filterval <- as.numeric(strsplit(filterval, "_")[[1]])
         if (length(filterval) > 1)
           # range filter
-          x <- x[x[[i]] >= filterval[1] & x[[i]] <= filterval[2], , drop = FALSE]
+          x <- x[is.finite(x[[i]]) & x[[i]] >= filterval[1] & x[[i]] <= filterval[2], , drop = FALSE]
         else
           # equality filter
-          x <- x[x[[i]] == filterval, , drop = FALSE]
+          x <- x[is.finite(x[[i]]) & x[[i]] == filterval, , drop = FALSE]
+      }
+      else if (identical(filtertype, "boolean")) 
+      {
+        filterval <- isTRUE(filterval == "TRUE")
+        matches <- x[[i]] == filterval
+        matches[is.na(matches)] <- FALSE
+        x <- x[matches, , drop = FALSE]
       }
     }
   }
@@ -247,7 +355,7 @@
   if (!is.null(search) && nchar(search) > 0)
   {
     x <- x[Reduce("|", lapply(x, function(column) { 
-             grepl(search, column, ignore.case = TRUE)
+             grepl(tolower(search), tolower(column), fixed = TRUE)
            })), , drop = FALSE]
   }
 
@@ -290,6 +398,10 @@
 {
   env <- NULL
 
+  # mark encoding on cache directory 
+  if (Encoding(cacheDir) == "unknown")
+    Encoding(cacheDir) <- "UTF-8"
+
   # do we have an object name? if so, check in a named environment
   if (!is.null(objName) && nchar(objName) > 0) 
   {
@@ -314,7 +426,8 @@
       # value here may indicate that the object exists in the environment but
       # is no longer a data frame (we want to fall back on the cache in this
       # case)
-      dataFrame <- .rs.toDataFrame(get(objName, envir = env, inherits = FALSE), objName)
+      dataFrame <- .rs.toDataFrame(get(objName, envir = env, inherits = FALSE), 
+                                   objName, TRUE)
       if (!is.null(dataFrame)) 
         return(dataFrame)
     }
@@ -414,6 +527,23 @@
    # is this a function? if it is, view as a function instead
    if (is.function(x)) 
    {
+     # check the source refs to see if we can open the file itself instead of
+     # opening a read-only source viewer
+     srcref <- .rs.getSrcref(x)
+     if (!is.null(srcref)) {
+       srcfile <- attr(srcref, "srcfile", exact = TRUE)
+       if (!is.null(srcfile) && !is.null(srcfile$filename) && 
+           file.exists(srcfile$filename)) {
+         # the srcref points to a valid file--go there 
+         invisible(.Call("rs_jumpToFunction", normalizePath(srcfile$filename), 
+                         srcref[[1]], srcref[[5]]))
+         return(invisible(NULL))
+       }
+     }
+
+     # either this function doesn't have a source reference or its source
+     # reference points to a file we can't locate on disk--show a deparsed
+     # version of the function
      namespace <- environmentName(env)
      if (identical(namespace, "R_EmptyEnv") || identical(namespace, ""))
        namespace <- "viewing"
@@ -423,8 +553,10 @@
      return(invisible(NULL))
    }
 
-   # test for coercion to data frame 
-   as.data.frame(x)
+   # test for coercion to data frame--the goal of this expression is just to
+   # raise an error early if the object can't be made into a frame
+   coerced <- x
+   eval(substitute(as.data.frame(coerced)), envir = globalenv())
 
    # save a copy into the cached environment
    cacheKey <- .rs.addCachedData(force(x), name)
@@ -454,13 +586,17 @@
 .rs.addFunction("assignCachedData", function(cacheKey, obj, objName) 
 {
    # coerce to data frame before assigning, and don't assign if we can't coerce
-   frame <- .rs.toDataFrame(obj, objName)
+   frame <- .rs.toDataFrame(obj, objName, TRUE)
    if (!is.null(frame))
       assign(cacheKey, frame, .rs.CachedDataEnv)
 })
 
 .rs.addFunction("removeCachedData", function(cacheKey, cacheDir)
 {
+  # mark encoding on cache directory 
+  if (Encoding(cacheDir) == "unknown")
+    Encoding(cacheDir) <- "UTF-8"
+
   # remove data from the cache environment
   if (exists(".rs.CachedDataEnv") &&
       exists(cacheKey, where = .rs.CachedDataEnv, inherits = FALSE))
@@ -479,6 +615,10 @@
 
 .rs.addFunction("saveCachedData", function(cacheDir)
 {
+  # mark encoding on cache directory 
+  if (Encoding(cacheDir) == "unknown")
+    Encoding(cacheDir) <- "UTF-8"
+
   # no work to do if we have no cache
   if (!exists(".rs.CachedDataEnv")) 
     return(invisible(NULL))

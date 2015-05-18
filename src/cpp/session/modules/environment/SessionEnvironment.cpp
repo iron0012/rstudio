@@ -136,8 +136,7 @@ Error getFileNameFromContext(const RCNTXT* pContext,
    SEXP srcref = pContext->srcref;
    if (isValidSrcref(srcref))
    {
-      return r::exec::RFunction(".rs.sourceFileFromRef", srcref)
-                    .call(pFileName);
+      return sourceFileFromRef(srcref, pFileName);
    }
    else
    {
@@ -161,7 +160,7 @@ Error invokeFunctionOnCall(const char* rFunction,
                             .call(&result, &protect);
    if (!error && r::sexp::length(result) > 0)
    {
-      error = r::sexp::extract(result, pResult);
+      error = r::sexp::extract(result, pResult, true);
    }
    else
    {
@@ -623,11 +622,20 @@ bool functionIsOutOfSync(const RCNTXT *pContext,
                          std::string *pFunctionCode)
 {
    Error error;
+   r::sexp::Protect protect;
+   SEXP sexpCode = R_NilValue;
 
    // start by extracting the source code from the call site
    error = r::exec::RFunction(".rs.sourceCodeFromFunction",
                               getOriginalFunctionCallObject(pContext))
-         .call(pFunctionCode);
+         .call(&sexpCode, &protect);
+   if (error)
+   {
+      LOG_ERROR(error);
+      return true;
+   }
+
+   error = r::sexp::extract(sexpCode, pFunctionCode, true);
    if (error)
    {
       LOG_ERROR(error);
@@ -1069,6 +1077,19 @@ void onConsoleOutput(boost::shared_ptr<LineDebugState> pLineDebugState,
    }
 }
 
+
+SEXP rs_jumpToFunction(SEXP file, SEXP line, SEXP col) 
+{
+   json::Object funcLoc;
+   FilePath path(r::sexp::safeAsString(file));
+   funcLoc["file_name"] = module_context::createAliasedPath(path);
+   funcLoc["line_number"] = r::sexp::asInteger(line);
+   funcLoc["column_number"] = r::sexp::asInteger(col);
+   ClientEvent jumpEvent(client_events::kJumpToFunction, funcLoc);
+   module_context::enqueClientEvent(jumpEvent);
+   return R_NilValue;
+}
+
 } // anonymous namespace
 
 json::Value environmentStateAsJson()
@@ -1112,6 +1133,12 @@ Error initialize()
             "rs_isBrowserActive",
             (DL_FUNC) rs_isBrowserActive,
             0);
+
+   R_CallMethodDef methodDef ;
+   methodDef.name = "rs_jumpToFunction" ;
+   methodDef.fun = (DL_FUNC) rs_jumpToFunction ;
+   methodDef.numArgs = 3;
+   r::routines::addCallMethod(methodDef);
 
    // subscribe to events
    using boost::bind;

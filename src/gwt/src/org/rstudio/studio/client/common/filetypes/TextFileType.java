@@ -178,6 +178,11 @@ public class TextFileType extends EditableFileType
    {
       return canPreviewFromR_;
    }
+   
+   public boolean isText()
+   {
+      return FileTypeRegistry.TEXT.getTypeId().equals(getTypeId());
+   }
 
    public boolean isR()
    {
@@ -242,6 +247,16 @@ public class TextFileType extends EditableFileType
       return false;
    }
    
+   public boolean isStan()
+   {
+      return EditorLanguage.LANG_STAN.equals(getEditorLanguage());
+   }
+   
+   public String getPreviewButtonText()
+   {
+      return "Preview";
+   }
+   
    public String createPreviewCommand(String file)
    {
       return null;
@@ -274,6 +289,7 @@ public class TextFileType extends EditableFileType
       if (canExecuteCode() || isC())
       {
          results.add(commands.reindent());
+         results.add(commands.showDiagnosticsActiveDocument());
       }
       if (canExecuteCode()) {
          results.add(commands.executeCode());
@@ -283,6 +299,7 @@ public class TextFileType extends EditableFileType
          results.add(commands.extractLocalVariable());
          results.add(commands.commentUncomment());
          results.add(commands.reflowComment());
+         results.add(commands.reformatCode());
       }
       if (canExecuteAllCode())
       {

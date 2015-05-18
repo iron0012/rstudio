@@ -61,15 +61,13 @@ public class PublishingPreferencesPane extends PreferencesPane
       deps_ = deps;
       
       VerticalPanel accountPanel = new VerticalPanel();
-      Label accountLabel = new Label("Publishing Accounts");
+      Label accountLabel = headerLabel("Publishing Accounts");
       HorizontalPanel hpanel = new HorizontalPanel();
       
-      accountLabel.setStyleName(
-            PreferencesDialogBaseResources.INSTANCE.styles().headerLabel());
-      nudgeRight(accountLabel);
       accountPanel.add(accountLabel);
       
-      accountList_ = new RSConnectAccountList(server, globalDisplay, true);
+      accountList_ = new RSConnectAccountList(server, globalDisplay, true, 
+            true);
       accountList_.setHeight("200px");
       accountList_.setWidth("300px");
       accountList_.getElement().getStyle().setMarginBottom(15, Unit.PX);
@@ -118,11 +116,7 @@ public class PublishingPreferencesPane extends PreferencesPane
       accountPanel.add(hpanel);
       add(accountPanel);
       
-      Label settingsLabel = new Label("Settings");
-      settingsLabel.setStyleName(
-            PreferencesDialogBaseResources.INSTANCE.styles().headerLabel());
-      nudgeRight(settingsLabel);
-      add(settingsLabel);
+      add(headerLabel("Settings"));
       CheckBox chkEnablePublishing = checkboxPref("Enable publishing apps and documents", 
             uiPrefs_.showPublishUi());
       chkEnablePublishing.addValueChangeHandler(new ValueChangeHandler<Boolean>(){
@@ -243,7 +237,8 @@ public class PublishingPreferencesPane extends PreferencesPane
    
    private void showAccountWizard()
    {
-      connector_.showAccountWizard(false, new OperationWithInput<Boolean>() 
+      connector_.showAccountWizard(false, true, 
+            new OperationWithInput<Boolean>() 
       {
          @Override
          public void execute(Boolean successful)

@@ -20,7 +20,12 @@ cmake_policy(SET CMP0020 OLD)
 project(DESKTOP)
 
 # require Qt 5.4
-set(QT_VERSION "5.4.0")
+if(WIN32)
+  set(QT_VERSION "5.4.1")
+else()
+  set(QT_VERSION "5.4.0")
+endif()
+
 set(QT_VERSION_SUBDIR "5.4")
 
 # on unix prefer qtsdk installs over system-level libraries. note this
@@ -54,6 +59,8 @@ else()
       set(QMAKE_QT50_SDK "C:\\Qt\\Qt${QT_VERSION}\\${QT_VERSION_SUBDIR}\\mingw491_32")
       if(EXISTS ${QMAKE_QT50_SDK})
          set(QT_QMAKE_EXECUTABLE "${QMAKE_QT50_SDK}\\bin\\qmake.exe")
+      else()
+         message(FATAL_ERROR "Failed to locate Qt ${QT_VERSION} SDK (expected SDK at ${QMAKE_QT50_SDK})")
       endif()
    endif()
 endif()
@@ -113,6 +120,7 @@ list(REMOVE_ITEM MOC_DESKTOP_HEADER_FILES
   ${CMAKE_CURRENT_SOURCE_DIR}/DesktopNetworkIOService.hpp
   ${CMAKE_CURRENT_SOURCE_DIR}/DesktopNetworkProxyFactory.hpp
   ${CMAKE_CURRENT_SOURCE_DIR}/DesktopGwtCallbackOwner.hpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/DesktopProgressActivator.hpp
   ${CMAKE_CURRENT_SOURCE_DIR}/DesktopUtils.hpp
   ${CMAKE_CURRENT_SOURCE_DIR}/DesktopWordViewer.hpp
   ${CMAKE_CURRENT_SOURCE_DIR}/desktop-config.h.in
@@ -177,6 +185,7 @@ if(WIN32)
     DesktopWin32ApplicationLaunch.cpp
     DesktopRVersion.cpp
     DesktopWin32DetectRHome.cpp
+    DesktopWin32ProgressActivator.cpp
     DesktopWordViewer.cpp
     synctex/sumatra/SumatraSynctex.cpp
   )
@@ -420,6 +429,10 @@ if(RSTUDIO_BUNDLE_QT)
               PATTERN "*_debug.*" EXCLUDE
               PATTERN "*.a" EXCLUDE)
       install(DIRECTORY "${Qt5Core_DIR}/../../../plugins/platformthemes"
+              DESTINATION ${QTPLUGINS_DEST_DIR}/plugins
+              PATTERN "*_debug.*" EXCLUDE
+              PATTERN "*.a" EXCLUDE)
+      install(DIRECTORY "${Qt5Core_DIR}/../../../plugins/platforminputcontexts"
               DESTINATION ${QTPLUGINS_DEST_DIR}/plugins
               PATTERN "*_debug.*" EXCLUDE
               PATTERN "*.a" EXCLUDE)

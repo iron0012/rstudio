@@ -34,6 +34,7 @@ import com.google.gwt.user.client.ui.VerticalPanel;
 
 import org.rstudio.core.client.ElementIds;
 import org.rstudio.core.client.Rectangle;
+import org.rstudio.core.client.StringUtil;
 import org.rstudio.core.client.command.KeyboardShortcut;
 import org.rstudio.core.client.events.SelectionCommitEvent;
 import org.rstudio.core.client.events.SelectionCommitHandler;
@@ -187,6 +188,15 @@ public class CompletionPopupPanel extends ThemedPopupPanel
       else
          show() ;
       
+      
+      // Fudge the completion width when the scrollbar is visible. This has
+      // to be done before help is shown since the help display is offset
+      // from the completion list. This also (implicitly) adds padding between
+      // the completion item and the package name (if it exists)
+      if (list_ != null && list_.getOffsetWidth() > list_.getElement().getClientWidth())
+         list_.setWidth(list_.getOffsetWidth() + 30 + "px");
+      
+      // Show help.
       if (help_ != null)
       {
          if (completionListIsOnScreen())
@@ -323,6 +333,17 @@ public class CompletionPopupPanel extends ThemedPopupPanel
    public void displayDataHelp(ParsedInfo help)
    {
       displayPackageHelp(help);
+   }
+   
+   @Override
+   public void displaySnippetHelp(String contents)
+   {
+      if (!completionListIsOnScreen())
+         return;
+      
+      help_.displaySnippetHelp(contents);
+      resolveHelpPosition(!StringUtil.isNullOrEmpty(contents));
+      
    }
 
    public void clearHelp(boolean downloadOperationPending)

@@ -57,8 +57,12 @@
       }
       else if (.rs.isFunction(val))
          return (.rs.getSignature(val))
-      else if (is(val, "Date"))
-         return (format(val))
+      else if (is(val, "Date") || is(val, "POSIXct") || is(val, "POSIXlt")) {
+         if (length(val) == 1)
+           return (format(val))
+         else
+           return (.rs.valueFromStr(val))
+      }
       else
          return ("NO_VALUE")
    },
@@ -75,6 +79,20 @@
 {
    tryCatch(
    {
+      # for Oracle R frames, show the query if it exists
+      if (is(val, "ore.frame")) 
+      {
+        query <- attr(val, "dataQry", exact = TRUE) 
+
+        # no query, show empty
+        if (is.null(query))
+          return("NO_VALUE") 
+
+        # query, display it
+        attributes(query) <- NULL
+        return(paste("   Query:", query))
+      }
+
       # only return the first 100 lines of detail (generally columns)--any more
       # won't be very presentable in the environment pane. the first line
       # generally contains descriptive text, so don't return that.
@@ -130,7 +148,7 @@
    if (!is.null(srcref))
    {
       fileattr <- attr(srcref, "srcfile")
-      fileattr$filename
+      enc2utf8(fileattr$filename)
    }
    else
       ""
@@ -199,8 +217,13 @@
      calltext <- unlist(strsplit(calltext, "\n", fixed = TRUE))
   }
 
+  # Remove leading/trailing whitespace on each line, and collapse the lines
   calltext <- sub("\\s+$", "", sub("^\\s+", "", calltext))
   calltext <- paste(calltext, collapse=" ")
+
+  # Any call text supplied is presumed UTF-8 unless we know otherwise
+  if (Encoding(calltext) == "unknown")
+     Encoding(calltext) <- "UTF-8"
 
   # NULL is output by R when it doesn't have an expression to output; don't
   # try to match it to code
@@ -208,7 +231,7 @@
      return(c(0L, 0L, 0L, 0L, 0L, 0L))
 
   pos <- gregexpr(calltext, singleline, fixed = TRUE)[[1]]
-  if (length(pos) > 1) 
+  if (length(pos) > 1)
   {
      # There is more than one instance of the call text in the function; try 
      # to pick the first match past the preferred line.
@@ -289,7 +312,11 @@
       }
       else if (is(obj, "ore.frame"))
       {
-         return(paste(ncol(obj),"columns"))
+        sqlTable <- attr(obj, "sqlTable", exact = TRUE)
+        if (is.null(sqlTable))
+          return("Oracle R frame") 
+        else
+          return(paste("Oracle R frame:", sqlTable))
       }
       else if (is(obj, "externalptr"))
       {
@@ -318,7 +345,8 @@
       else if (is.matrix(obj)
               || is.numeric(obj)
               || is.factor(obj)
-              || is.raw(obj))
+              || is.raw(obj) 
+              || is.character(obj))
       {
          return(.rs.valueFromStr(obj))
       }
@@ -450,6 +478,7 @@
 
          # expandable object--supply contents 
          if (class == "data.table" ||
+             class == "ore.frame" ||
              class == "cast_df" ||
              class == "xts" ||
              is.list(obj) || 

@@ -22,6 +22,7 @@
 #include <core/Log.hpp>
 #include <core/http/URL.hpp>
 #include <core/StringUtils.hpp>
+#include <core/system/Types.hpp>
 
 #include <core/system/RegistryKey.hpp>
 
@@ -43,6 +44,7 @@ RToolsInfo::RToolsInfo(const std::string& name, const FilePath& installPath)
 {
    std::string versionMin, versionMax;
    std::vector<std::string> relativePathEntries;
+   std::vector<core::system::Option> environmentVars;
    if (name == "2.11")
    {
       versionMin = "2.10.0";
@@ -100,7 +102,14 @@ RToolsInfo::RToolsInfo(const std::string& name, const FilePath& installPath)
    else if (name == "3.2")
    {
       versionMin = "3.1.0";
-      versionMax = "3.2.99";
+      versionMax = "3.2.0";
+      relativePathEntries.push_back("bin");
+      relativePathEntries.push_back("gcc-4.6.3/bin");
+   }
+   else if (name == "3.3")
+   {
+      versionMin = "3.2.0";
+      versionMax = "3.3.99";
       relativePathEntries.push_back("bin");
       relativePathEntries.push_back("gcc-4.6.3/bin");
    }
@@ -115,6 +124,8 @@ RToolsInfo::RToolsInfo(const std::string& name, const FilePath& installPath)
       {
          pathEntries_.push_back(installPath_.childPath(relativePath));
       }
+
+      environmentVars_ = environmentVars;
    }
 }
 
@@ -135,6 +146,11 @@ std::ostream& operator<<(std::ostream& os, const RToolsInfo& info)
    {
      os << pathEntry << std::endl;
    }
+   BOOST_FOREACH(const core::system::Option& var, info.environmentVars())
+   {
+      os << var.first << "=" << var.second << std::endl;
+   }
+
    return os;
 }
 

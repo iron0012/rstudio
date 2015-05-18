@@ -48,7 +48,7 @@
 // deleted. this has two implications:
 //
 //   - storage is not reclaimed
-//   - the properties can be "resurreced" and re-attached to another
+//   - the properties can be "resurrected" and re-attached to another
 //     file with the same path
 //
 // One way to overcome this might be to use filesystem metadata to store
@@ -59,6 +59,13 @@ using namespace rstudio::core;
 namespace rstudio {
 namespace session {
 namespace source_database {
+
+// static members
+const char * const SourceDocument::SourceDocumentTypeSweave    = "sweave";
+const char * const SourceDocument::SourceDocumentTypeRSource   = "r_source";
+const char * const SourceDocument::SourceDocumentTypeRMarkdown = "r_markdown";
+const char * const SourceDocument::SourceDocumentTypeRHTML     = "r_html";
+const char * const SourceDocument::SourceDocumentTypeCpp       = "cpp";
 
 namespace {
 

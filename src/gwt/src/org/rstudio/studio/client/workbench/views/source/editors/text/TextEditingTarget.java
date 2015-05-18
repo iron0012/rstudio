@@ -41,6 +41,7 @@ import org.rstudio.core.client.*;
 import org.rstudio.core.client.command.AppCommand;
 import org.rstudio.core.client.command.CommandBinder;
 import org.rstudio.core.client.command.Handler;
+import org.rstudio.core.client.command.KeyboardHelper;
 import org.rstudio.core.client.command.KeyboardShortcut;
 import org.rstudio.core.client.events.EnsureHeightHandler;
 import org.rstudio.core.client.events.EnsureVisibleHandler;
@@ -67,6 +68,7 @@ import org.rstudio.studio.client.common.filetypes.FileTypeCommands;
 import org.rstudio.studio.client.common.filetypes.FileTypeRegistry;
 import org.rstudio.studio.client.common.filetypes.SweaveFileType;
 import org.rstudio.studio.client.common.filetypes.TextFileType;
+import org.rstudio.studio.client.common.r.roxygen.RoxygenHelper;
 import org.rstudio.studio.client.common.rnw.RnwWeave;
 import org.rstudio.studio.client.common.synctex.Synctex;
 import org.rstudio.studio.client.common.synctex.SynctexUtils;
@@ -81,12 +83,16 @@ import org.rstudio.studio.client.rmarkdown.events.ConvertToShinyDocEvent;
 import org.rstudio.studio.client.rmarkdown.events.RmdOutputFormatChangedEvent;
 import org.rstudio.studio.client.rmarkdown.model.RMarkdownContext;
 import org.rstudio.studio.client.rmarkdown.model.RmdFrontMatter;
+import org.rstudio.studio.client.rmarkdown.model.RmdFrontMatterOutputOptions;
 import org.rstudio.studio.client.rmarkdown.model.RmdOutputFormat;
 import org.rstudio.studio.client.rmarkdown.model.RmdTemplateFormat;
 import org.rstudio.studio.client.rmarkdown.model.RmdYamlData;
 import org.rstudio.studio.client.rmarkdown.model.YamlFrontMatter;
 import org.rstudio.studio.client.rmarkdown.ui.RmdTemplateOptionsDialog;
+import org.rstudio.studio.client.rsconnect.RSConnect;
 import org.rstudio.studio.client.rsconnect.events.RSConnectActionEvent;
+import org.rstudio.studio.client.rsconnect.events.RSConnectDeployInitiatedEvent;
+import org.rstudio.studio.client.rsconnect.model.RSConnectPublishSettings;
 import org.rstudio.studio.client.server.ServerError;
 import org.rstudio.studio.client.server.ServerRequestCallback;
 import org.rstudio.studio.client.server.Void;
@@ -98,6 +104,7 @@ import org.rstudio.studio.client.workbench.model.Session;
 import org.rstudio.studio.client.workbench.model.SessionInfo;
 import org.rstudio.studio.client.workbench.prefs.model.UIPrefs;
 import org.rstudio.studio.client.workbench.prefs.model.UIPrefsAccessor;
+import org.rstudio.studio.client.workbench.snippets.SnippetHelper;
 import org.rstudio.studio.client.workbench.ui.FontSizeManager;
 import org.rstudio.studio.client.workbench.views.console.events.SendToConsoleEvent;
 import org.rstudio.studio.client.workbench.views.console.shell.editor.InputEditorPosition;
@@ -107,6 +114,7 @@ import org.rstudio.studio.client.workbench.views.files.events.FileChangeHandler;
 import org.rstudio.studio.client.workbench.views.files.model.FileChange;
 import org.rstudio.studio.client.workbench.views.help.events.ShowHelpEvent;
 import org.rstudio.studio.client.workbench.views.output.compilepdf.events.CompilePdfEvent;
+import org.rstudio.studio.client.workbench.views.output.lint.LintManager;
 import org.rstudio.studio.client.workbench.views.presentation.events.SourceFileSaveCompletedEvent;
 import org.rstudio.studio.client.workbench.views.presentation.model.PresentationState;
 import org.rstudio.studio.client.workbench.views.source.SourceBuildHelper;
@@ -120,6 +128,7 @@ import org.rstudio.studio.client.workbench.views.source.editors.text.ace.Mode.In
 import org.rstudio.studio.client.workbench.views.source.editors.text.ace.Position;
 import org.rstudio.studio.client.workbench.views.source.editors.text.ace.Range;
 import org.rstudio.studio.client.workbench.views.source.editors.text.cpp.CppCompletionContext;
+import org.rstudio.studio.client.workbench.views.source.editors.text.cpp.CppCompletionOperation;
 import org.rstudio.studio.client.workbench.views.source.editors.text.events.*;
 import org.rstudio.studio.client.workbench.views.source.editors.text.status.StatusBar;
 import org.rstudio.studio.client.workbench.views.source.editors.text.status.StatusBarPopupMenu;
@@ -190,6 +199,8 @@ public class TextEditingTarget implements
       void setFormatOptionsVisible(boolean visible);
       HandlerRegistration addRmdFormatChangedHandler(
             RmdOutputFormatChangedEvent.Handler handler);
+      
+      void setPublishPath(int contentType, String publishPath);
    }
 
    private class SaveProgressIndicator implements ProgressIndicator
@@ -367,6 +378,7 @@ public class TextEditingTarget implements
 
       docDisplay_ = docDisplay;
       dirtyState_ = new DirtyState(docDisplay_, false);
+      lintManager_ = new LintManager(this);
       prefs_ = prefs;
       codeExecution_ = new EditingTargetCodeExecution(docDisplay_, this);
       compilePdfHelper_ = new TextEditingTargetCompilePdfHelper(docDisplay_);
@@ -376,6 +388,8 @@ public class TextEditingTarget implements
       presentationHelper_ = new TextEditingTargetPresentationHelper(
                                                                   docDisplay_);
       reformatHelper_ = new TextEditingTargetReformatHelper(docDisplay_);
+      snippets_ = new SnippetHelper((AceEditor) docDisplay_);
+      
       docDisplay_.setRnwCompletionContext(compilePdfHelper_);
       docDisplay_.setCppCompletionContext(cppCompletionContext_);
       docDisplay_.setRCompletionContext(rContext_);
@@ -409,8 +423,8 @@ public class TextEditingTarget implements
                event.stopPropagation();
                commands_.findFromSelection().execute();
             }
-            else if (mod == KeyboardShortcut.ALT
-                     && ne.getKeyCode() == 189) // hyphen
+            else if (mod == KeyboardShortcut.ALT &&
+                     KeyboardHelper.isHyphenKeycode(ne.getKeyCode()))
             {
                event.preventDefault();
                event.stopPropagation();
@@ -443,6 +457,11 @@ public class TextEditingTarget implements
             {
                event.preventDefault();
                event.stopPropagation();
+               
+               // Don't send an interrupt if a popup is visible
+               if (docDisplay_.isPopupVisible())
+                  return;
+               
                if (commands_.interruptR().isEnabled())
                   commands_.interruptR().execute();
             }
@@ -490,6 +509,7 @@ public class TextEditingTarget implements
                      event.preventDefault();
                      event.stopPropagation();
                      docDisplay_.insertCode("\n" + match.getGroup(1));
+                     docDisplay_.ensureCursorVisible();
                   }
                }
             }
@@ -619,6 +639,40 @@ public class TextEditingTarget implements
             }
          }
       });
+      
+      events_.addHandler(RSConnectDeployInitiatedEvent.TYPE, 
+            new RSConnectDeployInitiatedEvent.Handler()
+            {
+               @Override
+               public void onRSConnectDeployInitiated(
+                     RSConnectDeployInitiatedEvent event)
+               {
+                  // no need to process this event if this target doesn't have a
+                  // path, or if the event's contents don't include additional
+                  // files.
+                  if (getPath() == null)
+                     return;
+                  
+                  // see if the event corresponds to a deployment of this file
+                  if (!getPath().equals(event.getSource().getSourceFile()))
+                     return;
+                  
+                  RSConnectPublishSettings settings = event.getSettings();
+                  if (settings == null)
+                     return;
+                  
+                  // ignore deployments of static content generated from this 
+                  // file
+                  if (settings.getAsStatic())
+                     return;
+                  
+                  if (settings.getAdditionalFiles() != null &&
+                      settings.getAdditionalFiles().size() > 0)
+                  {
+                     addAdditionalResourceFiles(settings.getAdditionalFiles());
+                  }
+               }
+            });
    }
    
    @Override
@@ -767,7 +821,9 @@ public class TextEditingTarget implements
             dirtyState_,
             events_);
 
-      // ensure that Makefile and Makebars always uses tabs
+      roxygenHelper_ = new RoxygenHelper(docDisplay_, view_);
+      
+      // ensure that Makefile and Makevars always use tabs
       name_.addValueChangeHandler(new ValueChangeHandler<String>() {
          @Override
          public void onValueChange(ValueChangeEvent<String> event)
@@ -867,9 +923,12 @@ public class TextEditingTarget implements
                   Position breakpointPosition = 
                         Position.create(event.getLineNumber() - 1, 1);
                   
-                  // if we're not in function scope, set a top-level breakpoint
-                  ScopeFunction innerFunction = 
-                        docDisplay_.getFunctionAtPosition(breakpointPosition);
+                  // if we're not in function scope, or this is a Shiny file,
+                  // set a top-level (aka. Shiny-deferred) breakpoint
+                  ScopeFunction innerFunction = null;
+                  if (!extendedType_.equals("shiny")) 
+                     innerFunction = docDisplay_.getFunctionAtPosition(
+                           breakpointPosition, false);
                   if (innerFunction == null || !innerFunction.isFunction() ||
                       StringUtil.isNullOrEmpty(innerFunction.getFunctionName()))
                   {
@@ -1004,7 +1063,8 @@ public class TextEditingTarget implements
             setRmdFormat(event.getFormat());
          }
       });
-
+      
+      syncPublishPath(document.getPath());
       initStatusBar();
    }
    
@@ -1767,12 +1827,15 @@ public class TextEditingTarget implements
                         @Override
                         public void execute()
                         {
-                           // breakpoints are file-specific, so when saving as
-                           // a different file, clear the display of breakpoints
-                           // from the old file name
                            if (!getPath().equals(saveItem.getPath()))
                            {
+                              // breakpoints are file-specific, so when saving
+                              // as a different file, clear the display of
+                              // breakpoints from the old file name
                               docDisplay_.removeAllBreakpoints();
+                              
+                              // update publish settings 
+                              syncPublishPath(saveItem.getPath());
                            }
                            
                            fixupCodeBeforeSaving();
@@ -2007,6 +2070,32 @@ public class TextEditingTarget implements
       }
       
       reformatHelper_.insertPrettyNewlines();
+   }
+   
+   @Handler
+   void onInsertRoxygenSkeleton()
+   {
+      roxygenHelper_.insertRoxygenSkeleton();
+   }
+   
+   @Handler
+   void onInsertSnippet()
+   {
+      // NOTE: Bound to Shift + Tab so we delegate back there
+      // if this isn't dispatched
+      if (!snippets_.onInsertSnippet())
+         docDisplay_.blockOutdent();
+   }
+   
+   @Handler
+   void onShowDiagnosticsActiveDocument()
+   {
+      lintManager_.lint(true, true, false);
+   }
+   
+   public void withSavedDoc(Command onsaved)
+   {
+      docUpdateSentinel_.withSavedDoc(onsaved);
    }
    
    @Handler
@@ -2321,6 +2410,21 @@ public class TextEditingTarget implements
    void onJumpToMatching()
    {
       docDisplay_.jumpToMatching();
+      docDisplay_.ensureCursorVisible();
+   }
+   
+   @Handler
+   void onSelectToMatching()
+   {
+      docDisplay_.selectToMatching();
+      docDisplay_.ensureCursorVisible();
+   }
+   
+   @Handler
+   void onExpandToMatching()
+   {
+      docDisplay_.expandToMatching();
+      docDisplay_.ensureCursorVisible();
    }
 
    @Handler
@@ -2330,7 +2434,7 @@ public class TextEditingTarget implements
          doCommentUncomment("%");
       else if (isCursorInRMode())
          doCommentUncomment("#");
-      else if (fileType_.isCpp())
+      else if (fileType_.isCpp() || fileType_.isStan())
          doCommentUncomment("//"); 
    }
    
@@ -2464,6 +2568,32 @@ public class TextEditingTarget implements
       }
       else if (DocumentMode.isSelectionInTexMode(docDisplay_))
          doReflowComment("(%)");
+      else if (DocumentMode.isSelectionInMarkdownMode(docDisplay_))
+         doReflowComment("()");
+      else if (docDisplay_.getFileType().isText())
+         doReflowComment("()");
+         
+   }
+   
+   public void reflowText()
+   {
+      if (docDisplay_.getSelectionValue().isEmpty())
+         docDisplay_.setSelectionRange(
+               Range.fromPoints(
+                     Position.create(docDisplay_.getCursorPosition().getRow(), 0),
+                     Position.create(docDisplay_.getCursorPosition().getRow(),
+                           docDisplay_.getCurrentLine().length())));
+      
+      onReflowComment();
+      docDisplay_.setCursorPosition(
+            Position.create(
+                  docDisplay_.getSelectionEnd().getRow(),
+                  0));
+   }
+   
+   public void showHelpAtCursor()
+   {
+      docDisplay_.goToHelp();
    }
    
    @Handler
@@ -2471,20 +2601,23 @@ public class TextEditingTarget implements
    {
       docDisplay_.toggleBreakpointAtCursor();
    }
-
-   @Handler 
+   
+   @Handler
    void onRsconnectDeploy()
    {
-      events_.fireEvent(new RSConnectActionEvent(
-            RSConnectActionEvent.ACTION_TYPE_DEPLOY, 
-            docUpdateSentinel_.getPath()));
+      if (docUpdateSentinel_ == null)
+         return;
+
+      // only Shiny files get the deploy command, so we can be confident we're
+      // deploying an app here
+      events_.fireEvent(RSConnectActionEvent.DeployAppEvent(
+            docUpdateSentinel_.getPath(), null));
    }
 
    @Handler 
    void onRsconnectConfigure()
    {
-      events_.fireEvent(new RSConnectActionEvent(
-            RSConnectActionEvent.ACTION_TYPE_CONFIGURE, 
+      events_.fireEvent(RSConnectActionEvent.ConfigureAppEvent(
             docUpdateSentinel_.getPath()));
    }
 
@@ -2583,7 +2716,7 @@ public class TextEditingTarget implements
                {
                   // when the dialog is completed successfully, apply the new
                   // front matter
-                  applyRmdFrontMatter(in);
+                  applyRmdFormatOptions(in.format, in.outputOptions);
                }
             }, 
             new Operation()
@@ -2597,6 +2730,21 @@ public class TextEditingTarget implements
                }
             });
       dialog.showModal();
+   }
+   
+   private void applyRmdFormatOptions(String format, 
+         RmdFrontMatterOutputOptions options)
+   {
+      rmarkdownHelper_.replaceOutputFormatOptions(
+            getRmdFrontMatter(), format, options, 
+            new OperationWithInput<String>()
+            {
+               @Override
+               public void execute(String input)
+               {
+                  applyRmdFrontMatter(input);
+               }
+            });
    }
    
    private String getRmdFrontMatter()
@@ -2615,20 +2763,6 @@ public class TextEditingTarget implements
       }
    }
 
-   private void applyRmdFrontMatter(RmdTemplateOptionsDialog.Result result)
-   {
-      rmarkdownHelper_.frontMatterToYAML(result.frontMatter, 
-            result.format,
-            new CommandWithArg<String>()
-      {
-         @Override
-         public void execute(String yaml)
-         {
-            applyRmdFrontMatter(yaml);
-         }
-      });
-   }
-   
    private RmdSelectedTemplate getSelectedTemplate()
    {
       // try to extract the front matter and ascertain the template to which
@@ -2952,13 +3086,13 @@ public class TextEditingTarget implements
       // It's the easiest way to make sure getCurrentScope() returns
       // a Scope with an end.
       docDisplay_.getScopeTree();
-      Scope currentFunction = docDisplay_.getCurrentFunction();
+      Scope currentFunction = docDisplay_.getCurrentFunction(false);
 
       // Check if we're at the top level (i.e. not in a function), or in
       // an unclosed function
       if (currentFunction == null || currentFunction.getEnd() == null)
          return;
-
+      
       Position start = currentFunction.getPreamble();
       Position end = currentFunction.getEnd();
 
@@ -3157,29 +3291,61 @@ public class TextEditingTarget implements
       docDisplay_.scrollToY(scrollPosition);
    }
 
-   private void executeSweaveChunk(Scope chunk, boolean scrollNearTop)
+   private void executeSweaveChunk(final Scope chunk, 
+                                   final boolean scrollNearTop)
    {
       if (chunk == null)
          return;
 
-      Range range = scopeHelper_.getSweaveChunkInnerRange(chunk);
-      if (scrollNearTop)
-      {
-         docDisplay_.navigateToPosition(
-               SourcePosition.create(range.getStart().getRow(),
-                                     range.getStart().getColumn()),
-               true);
-      }
-      docDisplay_.setSelection(
-            docDisplay_.createSelection(range.getStart(), range.getEnd()));
-      if (!range.isEmpty())
-      {
-         codeExecution_.setLastExecuted(range.getStart(), range.getEnd());
-         String code = scopeHelper_.getSweaveChunkText(chunk);
-         events_.fireEvent(new SendToConsoleEvent(code, true));
+      // command used to execute chunk (we may need to defer it if this
+      // is an Rmd document as populating params might be necessary)
+      final Command executeChunk = new Command() {
+         @Override
+         public void execute()
+         {
+            Range range = scopeHelper_.getSweaveChunkInnerRange(chunk);
+            if (scrollNearTop)
+            {
+               docDisplay_.navigateToPosition(
+                     SourcePosition.create(range.getStart().getRow(),
+                                           range.getStart().getColumn()),
+                     true);
+            }
+            docDisplay_.setSelection(
+                docDisplay_.createSelection(range.getStart(), range.getEnd()));
+            if (!range.isEmpty())
+            {
+               codeExecution_.setLastExecuted(range.getStart(), range.getEnd());
+               String code = scopeHelper_.getSweaveChunkText(chunk);
+               events_.fireEvent(new SendToConsoleEvent(code, true));
 
-         docDisplay_.collapseSelection(true);
+               docDisplay_.collapseSelection(true);
+            }
+         }
+      };
+      
+      // Rmd allows server-side prep for chunk execution
+      if (fileType_.isRmd())
+      {
+         // ensure source is synced with server
+         docUpdateSentinel_.withSavedDoc(new Command() {
+            @Override
+            public void execute()
+            {
+               // allow server to prepare for chunk execution
+               // (e.g. by populating 'params' in the global environment)
+               rmarkdownHelper_.prepareForRmdChunkExecution(
+                     docUpdateSentinel_.getId(),
+                     docUpdateSentinel_.getContents(), 
+                     executeChunk);
+            }
+         });  
       }
+      else
+      {
+         executeChunk.execute();
+      }
+      
    }
    
    @Handler
@@ -3335,7 +3501,7 @@ public class TextEditingTarget implements
          // then you don't see any of the output
          
          boolean saveWhenSourcing = fileType_.isCpp() || 
-               docDisplay_.hasBreakpoints();
+               docDisplay_.hasBreakpoints() || (prefs_.saveBeforeSourcing().getValue() && (getPath() != null) && !sweave);
          
          if ((dirtyState_.getValue() || sweave) && !saveWhenSourcing)
          {
@@ -3591,35 +3757,22 @@ public class TextEditingTarget implements
    
    void renderRmd()
    { 
-      boolean renderSourceOnly = (docUpdateSentinel_.getPath() == null) &&
-                                  !isShinyDoc();
-          
-      if (renderSourceOnly)
-      {
-         rmarkdownHelper_.renderRMarkdownSource(docDisplay_.getCode(),
-                                                isShinyDoc());
-      }
-      
-      else
-      {
-         saveThenExecute(null, new Command() {
-            @Override
-            public void execute()
-            {
-               boolean asTempfile = isPackageDocumentationFile();
-               
-               rmarkdownHelper_.renderRMarkdown(
-                  docUpdateSentinel_.getPath(),
-                  docDisplay_.getCursorPosition().getRow() + 1,
-                  null,
-                  docUpdateSentinel_.getEncoding(),
-                  asTempfile,
-                  isShinyDoc(),
-                  false);
-            }
-         });
-      }
-      
+      saveThenExecute(null, new Command() {
+         @Override
+         public void execute()
+         {
+            boolean asTempfile = isPackageDocumentationFile();
+            
+            rmarkdownHelper_.renderRMarkdown(
+               docUpdateSentinel_.getPath(),
+               docDisplay_.getCursorPosition().getRow() + 1,
+               null,
+               docUpdateSentinel_.getEncoding(),
+               asTempfile,
+               isShinyDoc(),
+               false);
+         }
+      });  
    }
    
    private boolean isShinyDoc()
@@ -3919,6 +4072,7 @@ public class TextEditingTarget implements
    void onFindFromSelection()
    {
       view_.findFromSelection();
+      docDisplay_.focus();
    }
    
    @Handler
@@ -4370,7 +4524,36 @@ public class TextEditingTarget implements
             }
          });
 
-      }   
+      }
+
+      @Override
+      public void cppCompletionOperation(final CppCompletionOperation operation)
+      {
+         if (isCompletionEnabled())
+         {
+            withUpdatedDoc(new CommandWithArg<String>() {
+               @Override
+               public void execute(String docPath)
+               {
+                  Position pos = docDisplay_.getSelectionStart();
+                  
+                  operation.execute(docPath, 
+                                    pos.getRow() + 1, 
+                                    pos.getColumn() + 1);
+               }
+            });
+         }
+         
+      }
+      
+      @Override
+      public String getDocPath()
+      {
+         if (docUpdateSentinel_ == null)
+            return "";
+            
+         return docUpdateSentinel_.getPath();
+      }
    };
    
    private RCompletionContext rContext_ = new RCompletionContext() {
@@ -4378,13 +4561,19 @@ public class TextEditingTarget implements
       @Override
       public String getPath()
       {
-         return docUpdateSentinel_.getPath();
+         if (docUpdateSentinel_ == null)
+            return null;
+         else
+            return docUpdateSentinel_.getPath();
       }
       
       @Override
       public String getId()
       {
-         return docUpdateSentinel_.getId();
+         if (docUpdateSentinel_ == null)
+            return null;
+         else
+            return docUpdateSentinel_.getId();
       }
    };
    
@@ -4492,6 +4681,44 @@ public class TextEditingTarget implements
                public void execute(Boolean arg) {
                   docDisplay.setUseVimMode(arg);
                }}));
+      releaseOnDismiss.add(prefs.codeCompleteOther().bind(
+            new CommandWithArg<String>() {
+               public void execute(String arg) {
+                  docDisplay.syncCompletionPrefs();
+               }}));
+      releaseOnDismiss.add(prefs.alwaysCompleteCharacters().bind(
+            new CommandWithArg<Integer>() {
+               public void execute(Integer arg) {
+                  docDisplay.syncCompletionPrefs();
+               }}));
+      releaseOnDismiss.add(prefs.alwaysCompleteDelayMs().bind(
+            new CommandWithArg<Integer>() {
+               public void execute(Integer arg) {
+                  docDisplay.syncCompletionPrefs();
+               }}));
+      releaseOnDismiss.add(prefs.enableSnippets().bind(
+            new CommandWithArg<Boolean>() {
+               public void execute(Boolean arg) {
+                  docDisplay.syncCompletionPrefs();
+               }}));
+      releaseOnDismiss.add(prefs.showDiagnosticsOther().bind(
+            new CommandWithArg<Boolean>() {
+               public void execute(Boolean arg) {
+                  docDisplay.syncDiagnosticsPrefs();
+               }}));
+      releaseOnDismiss.add(prefs.diagnosticsOnSave().bind(
+            new CommandWithArg<Boolean>() {
+               @Override
+               public void execute(Boolean arg)
+               {
+                  docDisplay.syncDiagnosticsPrefs();
+               }}));
+      releaseOnDismiss.add(prefs.backgroundDiagnosticsDelayMs().bind(
+            new CommandWithArg<Integer>() {
+               public void execute(Integer arg) {
+                  docDisplay.syncDiagnosticsPrefs();
+               }}));
+      
    }
    
    public static void syncFontSize(
@@ -4550,6 +4777,46 @@ public class TextEditingTarget implements
            }));
    }
    
+   public DocDisplay getDocDisplay()
+   {
+      return docDisplay_;
+   }
+   
+   private void addAdditionalResourceFiles(ArrayList<String> additionalFiles)
+   {
+      // it does--get the YAML front matter and modify it to include
+      // the additional files named in the deployment
+      String yaml = getRmdFrontMatter();
+      if (yaml == null)
+         return;
+      rmarkdownHelper_.addAdditionalResourceFiles(yaml,
+            additionalFiles, 
+            new CommandWithArg<String>()
+            {
+               @Override
+               public void execute(String yamlOut)
+               {
+                  if (yamlOut != null)
+                  {
+                     applyRmdFrontMatter(yamlOut);
+                  }
+               }
+            });
+   }
+   
+   private void syncPublishPath(String path)
+   {
+      // if we have a view, a type, and a path, sync the view's content publish
+      // path to the new content path
+      if (view_ != null && extendedType_ != null && path != null &&
+          (extendedType_.equals("shiny") || extendedType_.equals("rmarkdown")))
+      {
+         view_.setPublishPath(extendedType_.equals("shiny") ?
+               RSConnect.CONTENT_TYPE_APP : 
+               RSConnect.CONTENT_TYPE_DOCUMENT, path);
+      }
+   }
+   
    private StatusBar statusBar_;
    private final DocDisplay docDisplay_;
    private final UIPrefs prefs_;
@@ -4582,11 +4849,14 @@ public class TextEditingTarget implements
    private final TextEditingTargetCppHelper cppHelper_;
    private final TextEditingTargetPresentationHelper presentationHelper_;
    private final TextEditingTargetReformatHelper reformatHelper_;
+   private RoxygenHelper roxygenHelper_;
    private boolean ignoreDeletes_;
    private boolean forceSaveCommandActive_ = false;
    private final TextEditingTargetScopeHelper scopeHelper_;
    private TextEditingTargetSpelling spelling_;
    private BreakpointManager breakpointManager_;
+   private final LintManager lintManager_;
+   private final SnippetHelper snippets_;
 
    // Allows external edit checks to supercede one another
    private final Invalidation externalEditCheckInvalidation_ =

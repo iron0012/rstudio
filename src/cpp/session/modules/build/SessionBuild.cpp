@@ -521,6 +521,10 @@ private:
       // set the not cran env var
       core::system::setenv(&childEnv, "NOT_CRAN", "true");
 
+      // turn off external applications launching
+      core::system::setenv(&childEnv, "R_BROWSER", "false");
+      core::system::setenv(&childEnv, "R_PDFVIEWER", "false");
+
       // add r tools to path if necessary
       module_context::addRtoolsToPathIfNecessary(&childEnv, &buildToolsWarning_);
 
@@ -891,7 +895,7 @@ private:
 
       boost::format fmt(
          "setwd('%1%'); "
-         "invisible(lapply(list.files(pattern = '\\.[rR]$'), function(x) { "
+         "invisible(lapply(list.files(pattern = '\\\\.[rR]$'), function(x) { "
          "    system(paste(shQuote('%2%'), '--vanilla --slave -f', shQuote(x))) "
          "}))"
       );

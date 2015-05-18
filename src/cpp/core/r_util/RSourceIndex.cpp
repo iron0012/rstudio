@@ -13,6 +13,9 @@
  *
  */
 
+#define RSTUDIO_DEBUG_LABEL "source_index"
+// #define RSTUDIO_ENABLE_DEBUG_MACROS
+
 #include <core/r_util/RSourceIndex.hpp>
 
 #include <boost/algorithm/string.hpp>
@@ -20,23 +23,20 @@
 #include <core/StringUtils.hpp>
 
 #include <core/r_util/RTokenizer.hpp>
-
-#define R_SOURCE_INDEX_DEBUG_LEVEL 0
-
-#if R_SOURCE_INDEX_DEBUG_LEVEL > 0
-#define DEBUG(x) \
-   std::cerr << x << std::endl;
-#else
-#define DEBUG(x)
-#endif
+#include <core/Macros.hpp>
 
 namespace rstudio {
 namespace core {
 namespace r_util {
 
+using namespace token_utils;
+
 // static members
 std::set<std::string> RSourceIndex::s_allInferredPkgNames_;
-std::map<std::string, AsyncLibraryCompletions> RSourceIndex::s_completions_;
+std::set<std::string> RSourceIndex::s_importedPackages_;
+RSourceIndex::ImportFromMap RSourceIndex::s_importFromDirectives_;
+std::map<std::string, PackageInformation> RSourceIndex::s_packageInformation_;
+FunctionInformation RSourceIndex::s_noSuchFunction_;
 
 namespace {
 
@@ -96,7 +96,7 @@ bool advancePastNextToken(
 
 bool advancePastNextToken(RTokens::const_iterator* pBegin,
                           RTokens::const_iterator end,
-                          const wchar_t type)
+                          RToken::TokenType type)
 {
    return advancePastNextToken(pBegin,
                                end,
@@ -203,6 +203,16 @@ void parseSignature(RTokens::const_iterator begin,
    }
 }
 
+bool isMethodOrClassDefinition(const RToken& token)
+{
+   return token.contentStartsWith(L"set") && (
+            token.contentEquals(L"setGeneric") ||
+            token.contentEquals(L"setMethod") ||
+            token.contentEquals(L"setClass") ||
+            token.contentEquals(L"setGroupGeneric") ||
+            token.contentEquals(L"setClassUnion") ||
+            token.contentEquals(L"setRefClass"));
+}
 
 }  // anonymous namespace
 
@@ -227,9 +237,14 @@ RSourceIndex::RSourceIndex(const std::string& context,
 
    // tokenize
    RTokens rTokens(wCode, RTokens::StripWhitespace | RTokens::StripComments);
-
-   // scan for function, method, and class definitions (track indent level)
+   
+   // track nest level
    int braceLevel = 0;
+   int parenLevel = 0;
+   int bracketLevel = 0;
+   int doubleBracketLevel = 0;
+   
+   // scan for function, method, and class definitions
    std::wstring function(L"function");
    std::wstring set(L"set");
    std::wstring setGeneric(L"setGeneric");
@@ -249,7 +264,8 @@ RSourceIndex::RSourceIndex(const std::string& context,
    std::wstring library(L"library");
    std::wstring require(L"require");
    
-   for (std::size_t i=0; i<rTokens.size(); i++)
+   std::size_t n = rTokens.size();
+   for (std::size_t i = 0; i < n; ++i)
    {
       // initial name, qualifer, and type are nil
       RSourceItem::Type type = RSourceItem::None;
@@ -260,27 +276,23 @@ RSourceIndex::RSourceIndex(const std::string& context,
 
       // alias the token
       const RToken& token = rTokens.at(i);
-
-      // see if this is a begin or end brace and update the level
-      if (token.type() == RToken::LBRACE)
-      {
-         braceLevel++;
-         continue;
-      }
-
-      else if (token.type() == RToken::RBRACE)
-      {
-         braceLevel--;
-         continue;
-      }
-      // bail for non-identifiers
-      else if (token.type() != RToken::ID)
-      {
-         continue;
-      }
+      DEBUG("Current token: " << token);
+      
+      // update brace nesting levels
+      braceLevel += token.isType(RToken::LBRACE);
+      braceLevel -= token.isType(RToken::RBRACE);
+      
+      parenLevel += token.isType(RToken::LPAREN);
+      parenLevel -= token.isType(RToken::RPAREN);
+      
+      bracketLevel += token.isType(RToken::LBRACKET);
+      bracketLevel -= token.isType(RToken::RBRACKET);
+      
+      doubleBracketLevel += token.isType(RToken::LDBRACKET);
+      doubleBracketLevel -= token.isType(RToken::RDBRACKET);
 
       // is this a potential method or class definition?
-      if (token.contentStartsWith(set))
+      if (isMethodOrClassDefinition(token))
       {
          RSourceItem::Type setType = RSourceItem::None;
 
@@ -471,6 +483,51 @@ RSourceIndex::RSourceIndex(const std::string& context,
          addInferredPackage(string_utils::wideToUtf8(packageName));
 
          continue;
+      }
+      
+      // is this some other kind of assignment?
+      // we want to add e.g.
+      //
+      //    foo <- 1
+      //
+      // to the source index here
+      else if (i >= 1 && isLeftAssign(rTokens.at(i - 1)))
+      {
+         // bail if we're not at the top level
+         if (braceLevel || parenLevel || bracketLevel || doubleBracketLevel)
+         {
+            DEBUG("Bailing: [" << braceLevel << ", " << parenLevel << ", " <<
+                  bracketLevel << ", " << doubleBracketLevel << "]");
+            continue;
+         }
+         
+         // ensure the token previous to the left assign is
+         // an identifier or string
+         const RToken& idToken = rTokens.at(i - 2);
+         DEBUG("- Token: " << idToken);
+         
+         if (!(isId(idToken) || isString(idToken)))
+         {
+            DEBUG("* Not an id or string");
+            continue;
+         }
+         
+         // ensure the token previous to the assignment token
+         // is not a binary operator
+         if (i > 2)
+         {
+            const RToken& beforeId = rTokens.at(i - 3);
+            if (isBinaryOp(beforeId))
+            {
+               DEBUG("* Has binary op before; skipping");
+               continue;
+            }
+         }
+            
+         // if we get this far then it's a variable def'n
+         type = RSourceItem::Variable;
+         name = idToken.content();
+         tokenOffset = idToken.offset();
       }
       
       else

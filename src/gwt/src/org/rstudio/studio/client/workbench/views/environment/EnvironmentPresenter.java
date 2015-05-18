@@ -71,6 +71,7 @@ import org.rstudio.studio.client.workbench.views.environment.events.ContextDepth
 import org.rstudio.studio.client.workbench.views.environment.events.EnvironmentObjectAssignedEvent;
 import org.rstudio.studio.client.workbench.views.environment.events.EnvironmentObjectRemovedEvent;
 import org.rstudio.studio.client.workbench.views.environment.events.EnvironmentRefreshEvent;
+import org.rstudio.studio.client.workbench.views.environment.events.JumpToFunctionEvent;
 import org.rstudio.studio.client.workbench.views.environment.model.CallFrame;
 import org.rstudio.studio.client.workbench.views.environment.model.DownloadInfo;
 import org.rstudio.studio.client.workbench.views.environment.model.EnvironmentContextData;
@@ -81,6 +82,7 @@ import org.rstudio.studio.client.workbench.views.source.SourceShim;
 import org.rstudio.studio.client.workbench.views.source.events.CodeBrowserFinishedEvent;
 import org.rstudio.studio.client.workbench.views.source.events.CodeBrowserHighlightEvent;
 import org.rstudio.studio.client.workbench.views.source.events.CodeBrowserNavigationEvent;
+import org.rstudio.studio.client.workbench.views.source.model.SourceServerOperations;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -121,6 +123,7 @@ public class EnvironmentPresenter extends BasePresenter
    @Inject
    public EnvironmentPresenter(Display view,
                                EnvironmentServerOperations server,
+                               SourceServerOperations sourceServer,
                                Binder binder,
                                Commands commands,
                                GlobalDisplay globalDisplay,
@@ -138,6 +141,7 @@ public class EnvironmentPresenter extends BasePresenter
       
       view_ = view;
       server_ = server;
+      sourceServer_ = sourceServer;
       globalDisplay_ = globalDisplay;
       consoleDispatcher_ = consoleDispatcher;
       fsContext_ = fsContext;
@@ -259,6 +263,23 @@ public class EnvironmentPresenter extends BasePresenter
                // time, poll the server once for its current status.
                requeryContextTimer_.schedule(500);
             }
+         }
+      });
+      
+      
+      eventBus.addHandler(JumpToFunctionEvent.TYPE, 
+            new JumpToFunctionEvent.Handler()
+      {
+         @Override
+         public void onJumpToFunction(JumpToFunctionEvent event)
+         {
+            FilePosition pos = FilePosition.create(event.getLineNumber(), 
+                  event.getColumnNumber());
+            FileSystemItem destFile = FileSystemItem.createFile(
+                  event.getFileName());
+            eventBus_.fireEvent(new OpenSourceFileEvent(destFile, pos,
+                                   FileTypeRegistry.R,
+                                   NavigationMethod.Default));
          }
       });
       
@@ -743,7 +764,8 @@ public class EnvironmentPresenter extends BasePresenter
          @Override
          public void onError(ServerError error)
          {
-            if (!workbenchContext_.isRestartInProgress())
+            if (!workbenchContext_.isRestartInProgress() &&
+                (error.getCode() != ServerError.TRANSMISSION))
             {
                globalDisplay_.showErrorMessage("Error Listing Objects",
                                                error.getUserMessage());
@@ -758,6 +780,7 @@ public class EnvironmentPresenter extends BasePresenter
    {
       ImportFileSettingsDialog dialog = new ImportFileSettingsDialog(
               server_,
+              sourceServer_,
               input,
               varname,
               "Import Dataset",
@@ -788,20 +811,20 @@ public class EnvironmentPresenter extends BasePresenter
               new HashMap<String, ImportFileSettings>();
 
       commandDefaults_.put("read.table", new ImportFileSettings(
-              null, null, false, "", ".", "\"'", "NA", defaultStringsAsFactors));
+              null, null, "unknown", false, null, "", ".", "\"'", "#", "NA", defaultStringsAsFactors));
       commandDefaults_.put("read.csv", new ImportFileSettings(
-              null, null, true, ",", ".", "\"", "NA", defaultStringsAsFactors));
+              null, null, "unknown", true, null, ",", ".", "\"", "", "NA", defaultStringsAsFactors));
       commandDefaults_.put("read.delim", new ImportFileSettings(
-              null, null, true, "\t", ".", "\"", "NA", defaultStringsAsFactors));
+              null, null, "unknown", true, null, "\t", ".", "\"", "", "NA", defaultStringsAsFactors));
       commandDefaults_.put("read.csv2", new ImportFileSettings(
-              null, null, true, ";", ",", "\"", "NA", defaultStringsAsFactors));
+              null, null, "unknown", true, null, ";", ",", "\"", "", "NA", defaultStringsAsFactors));
       commandDefaults_.put("read.delim2", new ImportFileSettings(
-              null, null, true, "\t", ",", "\"", "NA", defaultStringsAsFactors));
+              null, null, "unknown", true, null, "\t", ",", "\"", "", "NA", defaultStringsAsFactors));
 
       String command = "read.table";
       ImportFileSettings settings = commandDefaults_.get("read.table");
       int score = settings.calculateSimilarity(input);
-      for (String cmd : new String[] {"read.csv", "read.delim"})
+      for (String cmd : new String[] {"read.csv", "read.delim", "read.csv2", "read.delim2"})
       {
          ImportFileSettings theseSettings = commandDefaults_.get(cmd);
          int thisScore = theseSettings.calculateSimilarity(input);
@@ -816,14 +839,23 @@ public class EnvironmentPresenter extends BasePresenter
       StringBuilder code = new StringBuilder(command);
       code.append("(");
       code.append(StringUtil.textToRLiteral(input.getFile().getPath()));
+      if (!input.getEncoding().equals(settings.getEncoding()))
+         code.append(", encoding=" + StringUtil.textToRLiteral(input.getEncoding()));
       if (input.isHeader() != settings.isHeader())
          code.append(", header=" + (input.isHeader() ? "TRUE" : "FALSE"));
+      if (!input.getRowNames().equals(settings.getRowNames()))
+      {
+         // appended literally, since it's the string "1" or the string "NULL"
+         code.append(", row.names=" + input.getRowNames());
+      }
       if (!input.getSep().equals(settings.getSep()))
          code.append(", sep=" + StringUtil.textToRLiteral(input.getSep()));
       if (!input.getDec().equals(settings.getDec()))
          code.append(", dec=" + StringUtil.textToRLiteral(input.getDec()));
       if (!input.getQuote().equals(settings.getQuote()))
          code.append(", quote=" + StringUtil.textToRLiteral(input.getQuote()));
+      if (!input.getComment().equals(settings.getComment()))
+         code.append(", comment.char=" + StringUtil.textToRLiteral(input.getComment()));
       if (!input.getNAStrings().equals(settings.getNAStrings()))
          code.append(", na.strings=" + StringUtil.textToRLiteral(input.getNAStrings()));
       if (input.getStringsAsFactors() != settings.getStringsAsFactors())
@@ -836,6 +868,7 @@ public class EnvironmentPresenter extends BasePresenter
 
    private final Display view_;
    private final EnvironmentServerOperations server_;
+   private final SourceServerOperations sourceServer_;
    private final GlobalDisplay globalDisplay_;
    private final ConsoleDispatcher consoleDispatcher_;
    private final RemoteFileSystemContext fsContext_;

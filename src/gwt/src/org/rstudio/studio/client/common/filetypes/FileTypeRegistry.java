@@ -67,6 +67,8 @@ public class FileTypeRegistry
                           ICONS.iconText(), false, false, false, false, false,
                           false, false, false, false, false, false, false, false);
    
+   public static final TextFileType STAN = new StanFileType();
+   
    public static final TextFileType MERMAID = new MermaidFileType();
    
    public static final TextFileType GRAPHVIZ = new GraphvizFileType();
@@ -157,7 +159,7 @@ public class FileTypeRegistry
    public static final TextFileType CPP = new CppFileType("cpp", ".cpp", ICONS.iconCpp(), true, true);
    
    public static final TextFileType CLOJURE = 
-         new TextFileType("clojure", "Clojure", EditorLanguage.LANG_CLOJURE, ".clojure", ICONS.iconClojure(),
+         new TextFileType("clojure", "Clojure", EditorLanguage.LANG_CLOJURE, ".clj", ICONS.iconClojure(),
                false, false, false, false, false,
                false, false, false, false, false, false, false, false);
    
@@ -242,6 +244,10 @@ public class FileTypeRegistry
                false, false, false, false, false,
                false, false, false, false, false, false, false, false);
    
+   public static final TextFileType SNIPPETS =
+         new TextFileType("snippets", "Snippets", EditorLanguage.LANG_SNIPPETS, ".snippets", ICONS.iconSnippets(),
+               false, false, false, false, false,
+               false, false, false, false, false, false, false, false);
    
    public static final RDataType RDATA = new RDataType();
    public static final RProjectType RPROJECT = new RProjectType();
@@ -332,6 +338,7 @@ public class FileTypeRegistry
       register("*.bib", TEXT, icons.iconText());
       register("*.c", C, icons.iconC());
       register("*.cpp", CPP, icons.iconCpp());
+      register("*.cc", CPP, icons.iconCpp());
       register("*.h", H, icons.iconH());
       register("*.hpp", HPP, icons.iconHpp());
       register("*.f", TEXT, icons.iconText());
@@ -350,7 +357,10 @@ public class FileTypeRegistry
       register("*.yml", YAML, icons.iconYaml());
       register("*.yaml", YAML, icons.iconYaml());
       register("*.xml", XML, icons.iconXml());
+      register("*.stan", STAN, icons.iconStan());
       
+      register("*.clj", CLOJURE, icons.iconClojure());
+      register("*.cloj", CLOJURE, icons.iconClojure());
       register("*.clojure", CLOJURE, icons.iconClojure());
       register("*.coffee", COFFEE, icons.iconCoffee());
       register("*.cs", CSHARP, icons.iconCsharp());
@@ -370,6 +380,7 @@ public class FileTypeRegistry
       register("*.rb", RUBY, icons.iconRuby());
       register("*.rs", RUST, icons.iconRust());
       register("*.scala", SCALA, icons.iconScala());
+      register("*.snippets", SNIPPETS, icons.iconSnippets());
 
       registerIcon(".jpg", icons.iconPng());
       registerIcon(".jpeg", icons.iconPng());

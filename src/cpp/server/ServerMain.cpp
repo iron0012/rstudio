@@ -333,6 +333,17 @@ void setBlockingDefault(const http::UriHandlerFunction& handler)
   s_pHttpServer->setBlockingDefaultHandler(handler);
 }
 
+void setRequestFilter(const core::http::RequestFilter& filter)
+{
+   s_pHttpServer->setRequestFilter(filter);
+}
+
+void setResponseFilter(const core::http::ResponseFilter& filter)
+{
+   s_pHttpServer->setResponseFilter(filter);
+}
+
+
 } // namespace uri_handlers
 
 namespace scheduler {
@@ -384,7 +395,8 @@ int main(int argc, char * const argv[])
             return core::system::exitFailure(error, ERROR_LOCATION);
 
          // set file creation mask to 022 (might have inherted 0 from init)
-         setUMask(core::system::OthersNoWriteMask);
+         if (options.serverSetUmask())
+            setUMask(core::system::OthersNoWriteMask);
       }
 
       // wait until now to output options warnings (we need to wait for our

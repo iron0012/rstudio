@@ -126,8 +126,17 @@ public class UIPrefs extends UIPrefsAccessor implements UiPrefsChangedHandler
          codeComplete().setGlobalValue(
                                  newUiPrefs.codeComplete().getGlobalValue());
          
+         codeCompleteOther().setGlobalValue(
+               newUiPrefs.codeCompleteOther().getGlobalValue());
+         
          alwaysCompleteInConsole().setGlobalValue(
                                  newUiPrefs.alwaysCompleteInConsole().getGlobalValue());
+         
+         alwaysCompleteDelayMs().setGlobalValue(
+                                 newUiPrefs.alwaysCompleteDelayMs().getGlobalValue());
+         
+         alwaysCompleteCharacters().setGlobalValue(
+                                 newUiPrefs.alwaysCompleteCharacters().getGlobalValue());
          
          insertParensAfterFunctionCompletion().setGlobalValue(
                                  newUiPrefs.insertParensAfterFunctionCompletion().getGlobalValue());
@@ -135,14 +144,58 @@ public class UIPrefs extends UIPrefsAccessor implements UiPrefsChangedHandler
          allowTabMultilineCompletion().setGlobalValue(
                                  newUiPrefs.allowTabMultilineCompletion().getGlobalValue());
          
+         enableSnippets().setGlobalValue(
+                                 newUiPrefs.enableSnippets().getGlobalValue());
+         
          insertSpacesAroundEquals().setGlobalValue(
                                  newUiPrefs.insertSpacesAroundEquals().getGlobalValue());
          
          showSignatureTooltips().setGlobalValue(
                                  newUiPrefs.showSignatureTooltips().getGlobalValue());
          
-         showDiagnostics().setGlobalValue(
-                                 newUiPrefs.showDiagnostics().getGlobalValue());
+         
+         /* Diagnostics */
+         
+         // R Diagnostics
+         
+         showDiagnosticsR().setGlobalValue(
+               newUiPrefs.showDiagnosticsR().getGlobalValue());
+         
+         diagnosticsInRFunctionCalls().setGlobalValue(
+               newUiPrefs.diagnosticsInRFunctionCalls().getGlobalValue());
+         
+         checkArgumentsToRFunctionCalls().setGlobalValue(
+               newUiPrefs.checkArgumentsToRFunctionCalls().getGlobalValue());
+         
+         warnIfNoSuchVariableInScope().setGlobalValue(
+               newUiPrefs.warnIfNoSuchVariableInScope().getGlobalValue());
+         
+         warnIfVariableDefinedButNotUsed().setGlobalValue(
+               newUiPrefs.warnIfVariableDefinedButNotUsed().getGlobalValue());
+         
+         enableStyleDiagnostics().setGlobalValue(
+               newUiPrefs.enableStyleDiagnostics().getGlobalValue());
+         
+         // Other diagnostics
+         
+         showDiagnosticsCpp().setGlobalValue(
+               newUiPrefs.showDiagnosticsCpp().getGlobalValue());
+         
+         showDiagnosticsOther().setGlobalValue(
+               newUiPrefs.showDiagnosticsOther().getGlobalValue());
+         
+         // Background Linting
+         
+         diagnosticsOnSave().setGlobalValue(
+               newUiPrefs.diagnosticsOnSave().getGlobalValue());
+         
+         enableBackgroundDiagnostics().setGlobalValue(
+               newUiPrefs.enableBackgroundDiagnostics().getGlobalValue());
+         
+         backgroundDiagnosticsDelayMs().setGlobalValue(
+               newUiPrefs.backgroundDiagnosticsDelayMs().getGlobalValue());
+         
+         /* End Diagnostics UI Prefs */
          
          autoAppendNewline().setGlobalValue(
                                  newUiPrefs.autoAppendNewline().getGlobalValue());
@@ -157,6 +210,10 @@ public class UIPrefs extends UIPrefsAccessor implements UiPrefsChangedHandler
          // focus console after exec
          focusConsoleAfterExec().setGlobalValue(
                          newUiPrefs.focusConsoleAfterExec().getGlobalValue());
+         
+         // save before sourcing
+         saveBeforeSourcing().setGlobalValue(
+                         newUiPrefs.saveBeforeSourcing().getGlobalValue());
          
          // syntax color console
          syntaxColorConsole().setGlobalValue(

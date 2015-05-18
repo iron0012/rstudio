@@ -58,6 +58,12 @@ npm install
 git submodule update --init --recursive
 
 # Merge all the bugfix branches
+
+# NOTE: 'vim-commands' API merged upstream; should be unneeded with next Ace update
+# NOTE: 'no-core-commands' and 'vim-page-commands' should be unnecessary with next Ace update
+# NOTE: 'dont-warn-on-scroll' likely needs to be re-thought as
+#   Ace will (may?) be gaining new defaults in next release re: scroll behaviour
+
 git merge \
     origin/bugfix/token-column \
     origin/bugfix/vim-vertical-block-eol \
@@ -69,7 +75,24 @@ git merge \
     origin/bugfix/vim-join-lines \
     origin/bugfix/highlight-tags-error \
     origin/bugfix/xml-tag-highlight \
+    origin/feature/vim-commands \
+    origin/bugfix/vim-fold-navigation \
+    origin/patch/no-core-commands \
+    origin/patch/vim-page-movement \
+    origin/patch/dont-warn-on-scroll \
+    origin/bugfix/vim-search-scrolling \
+    origin/patch/worker-timeout \
+    origin/patch/vim-colon-selection \
+    origin/patch/completion-throttling \
+    origin/patch/bundle-snippets \
+    origin/patch/cmd-click-multi-select \
+    origin/bugfix/firefox-fractional-height \
     -m "merge branches"
+
+# Need to merge separately to handle merge conflicts
+git merge --strategy-option theirs \
+	origin/patch/vim-Y-yank \
+	-m "merge again"
 
 ## git merge \
 ##     origin/bugfix-active-line-back \            # test printing (margin-layering; active line highlighting)
@@ -77,21 +100,8 @@ git merge \
 ## git merge \
 ##     origin/bugfix/ie10-clipboard \              # test copy+paste in IE10 (probably okay)
 
+# Rebuild ace with new sources
 
-# Build and copy ace, ace-uncompressed to RStudio
-node ./Makefile.dryice.js normal
-node ./Makefile.dryice.js -m normal
+cd ..
+./build-ace
 
-cp build/src/ace.js ../../src/org/rstudio/studio/client/workbench/views/source/editors/text/ace/ace-uncompressed.js
-cp build/src-min/ace.js ../../src/org/rstudio/studio/client/workbench/views/source/editors/text/ace/ace.js
-
-# Copy in the 'emacs', 'vim' keybindings
-cp build/src-min/keybinding-* ../../src/org/rstudio/studio/client/workbench/views/source/editors/text/ace/
-
-stripUseStrict() {
-    sed 's/"use strict";//g' "$1" > "$1.stripped"
-    mv "$1.stripped" "$1"
-}
-
-stripUseStrict ../../src/org/rstudio/studio/client/workbench/views/source/editors/text/ace/ace.js
-stripUseStrict ../../src/org/rstudio/studio/client/workbench/views/source/editors/text/ace/ace-uncompressed.js

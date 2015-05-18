@@ -275,6 +275,21 @@ void UserSettings::updatePrefsCache(const json::Object& prefs) const
 
    int shinyViewerType = readPref<int>(prefs, "shiny_viewer_type", modules::shiny_viewer::SHINY_VIEWER_WINDOW);
    pShinyViewerType_.reset(new int(shinyViewerType));
+   
+   bool lintRFunctionCalls = readPref<bool>(prefs, "diagnostics_in_function_calls", true);
+   pLintRFunctionCalls_.reset(new bool(lintRFunctionCalls));
+   
+   bool checkArgumentsToRFunctionCalls = readPref<bool>(prefs, "check_arguments_to_r_function_calls", false);
+   pCheckArgumentsToRFunctionCalls_.reset(new bool(checkArgumentsToRFunctionCalls));
+
+   bool warnIfNoSuchVariableInScope = readPref<bool>(prefs, "warn_if_no_such_variable_in_scope", false);
+   pWarnIfNoSuchVariableInScope_.reset(new bool(warnIfNoSuchVariableInScope));
+
+   bool warnIfVariableDefinedButNotUsed = readPref<bool>(prefs, "warn_if_variable_defined_but_not_used", false);
+   pWarnIfVariableDefinedButNotUsed_.reset(new bool(warnIfVariableDefinedButNotUsed));
+
+   bool enableStyleDiagnostics = readPref<bool>(prefs, "enable_style_diagnostics", false);
+   pEnableStyleDiagnostics_.reset(new bool(enableStyleDiagnostics));
 }
 
 
@@ -333,6 +348,31 @@ bool UserSettings::handleErrorsInUserCodeOnly() const
 int UserSettings::shinyViewerType() const
 {
    return readUiPref<int>(pShinyViewerType_);
+}
+
+bool UserSettings::lintRFunctionCalls() const
+{
+   return readUiPref<bool>(pLintRFunctionCalls_);
+}
+
+bool UserSettings::checkArgumentsToRFunctionCalls() const
+{
+   return readUiPref<bool>(pCheckArgumentsToRFunctionCalls_);
+}
+
+bool UserSettings::warnIfNoSuchVariableInScope() const
+{
+   return readUiPref<bool>(pWarnIfNoSuchVariableInScope_);
+}
+
+bool UserSettings::warnIfVariableDefinedButNotUsed() const
+{
+   return readUiPref<bool>(pWarnIfVariableDefinedButNotUsed_);
+}
+
+bool UserSettings::enableStyleDiagnostics() const
+{
+   return readUiPref<bool>(pEnableStyleDiagnostics_);
 }
 
 std::vector<std::string> UserSettings::spellingCustomDictionaries() const
@@ -655,5 +695,15 @@ void UserSettings::setClangVerbose(int level)
    settings_.set("clangVerbose", level);
 }
 
-}// namespace session
+void UserSettings::setEnableStyleDiagnostics(bool enable)
+{
+   settings_.set("enableStyleDiagnostics", enable);
+}
+
+void UserSettings::setLintRFunctionCalls(bool enable)
+{
+   settings_.set("lintRFunctionCalls", enable);
+}
+
+} // namespace session
 } // namespace rstudio

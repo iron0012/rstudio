@@ -347,9 +347,13 @@ public class Packages
                   // append command
                   command.append("\"" + path + "\", repos = NULL");
                   
-                  // append type = source if needed
+                  // append type if needed
                   if (path.endsWith(".tar.gz"))
                      command.append(", type = \"source\"");
+                  else if (path.endsWith(".zip"))
+                     command.append(", type = \"win.binary\"");
+                  else if (path.endsWith(".tgz"))
+                     command.append(", type = .Platform$pkgType");
                }
                
                if (!usingDefaultLibrary)
@@ -946,8 +950,11 @@ public class Packages
       public void onError(ServerError error)
       {
          // don't show errors during restart
-         if (!workbenchContext_.isRestartInProgress())
+         if (!workbenchContext_.isRestartInProgress() &&
+            (error.getCode() != ServerError.TRANSMISSION))
+         {
             super.onError(error);
+         }
          
          view_.setProgress(false);
       }

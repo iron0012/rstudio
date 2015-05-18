@@ -46,7 +46,8 @@ import org.rstudio.studio.client.common.filetypes.TextFileType;
 import org.rstudio.studio.client.common.icons.StandardIcons;
 import org.rstudio.studio.client.rmarkdown.RmdOutput;
 import org.rstudio.studio.client.rmarkdown.events.RmdOutputFormatChangedEvent;
-import org.rstudio.studio.client.rsconnect.ui.RSConnectUtils;
+import org.rstudio.studio.client.rsconnect.RSConnect;
+import org.rstudio.studio.client.rsconnect.ui.RSConnectPublishButton;
 import org.rstudio.studio.client.shiny.model.ShinyApplicationParams;
 import org.rstudio.studio.client.shiny.ui.ShinyViewerTypePopupMenu;
 import org.rstudio.studio.client.workbench.commands.Commands;
@@ -247,13 +248,13 @@ public class TextEditingTargetWidget
                        true);
       shinyLaunchButton_.setVisible(false);
       toolbar.addRightWidget(shinyLaunchButton_);
-      
       if (SessionUtils.showPublishUi(session_, uiPrefs_))
       {
          toolbar.addRightSeparator();
-         RSConnectUtils.addPublishCommands(toolbar, null, false);
+         publishButton_ = new RSConnectPublishButton(
+               RSConnect.CONTENT_TYPE_APP, false, commands_.rsconnectDeploy());
+         toolbar.addRightWidget(publishButton_);
       }
-      
       
       return toolbar;
    }
@@ -287,10 +288,15 @@ public class TextEditingTargetWidget
          menu.addItem(commands_.extractFunction().createMenuItem(false));
          menu.addItem(commands_.extractLocalVariable().createMenuItem(false));
          menu.addSeparator();
-         menu.addItem(commands_.reindent().createMenuItem(false));
          menu.addItem(commands_.reflowComment().createMenuItem(false));
          menu.addItem(commands_.commentUncomment().createMenuItem(false));
+         menu.addItem(commands_.insertRoxygenSkeleton().createMenuItem(false));
+         menu.addSeparator();
+         menu.addItem(commands_.reindent().createMenuItem(false));
          menu.addItem(commands_.reformatCode().createMenuItem(false));
+         menu.addSeparator();
+         menu.addItem(commands_.showDiagnosticsActiveDocument().createMenuItem(false));
+         menu.addItem(commands_.showDiagnosticsProject().createMenuItem(false));
          codeTransform_ = new ToolbarButton("", icon, menu);
          codeTransform_.setTitle("Code Tools");
       }
@@ -330,12 +336,12 @@ public class TextEditingTargetWidget
       sourceOnSave_.setVisible(canSourceOnSave);
       srcOnSaveLabel_.setVisible(canSourceOnSave);
       if (fileType.isRd() || canPreviewFromR)
-         srcOnSaveLabel_.setText("Preview on Save");
+         srcOnSaveLabel_.setText(fileType.getPreviewButtonText() + " on Save");
       else
          srcOnSaveLabel_.setText("Source on Save");
       codeTransform_.setVisible(
             (canExecuteCode && !fileType.canAuthorContent()) ||
-            fileType.isC());   
+            fileType.isC() || fileType.isStan());   
      
       sourceButton_.setVisible(canSource && !isPlainMarkdown);
       sourceMenuButton_.setVisible(canSourceWithEcho && 
@@ -372,7 +378,9 @@ public class TextEditingTargetWidget
       }
       else
       {
-         setSourceButtonFromScriptState(isScript, canPreviewFromR);
+         setSourceButtonFromScriptState(isScript, 
+                                        canPreviewFromR,
+                                        fileType.getPreviewButtonText());
       }
       
       toolbar_.invalidateSeparators();
@@ -416,7 +424,10 @@ public class TextEditingTargetWidget
       knitDocumentButton_.setText(width < 450 ? "" : knitCommandText_);
       
       if (editor_.getFileType().isRd() || editor_.getFileType().canPreviewFromR())
-         srcOnSaveLabel_.setText(width < 450 ? "Preview" : "Preview on Save");
+      {
+         String preview = editor_.getFileType().getPreviewButtonText();
+         srcOnSaveLabel_.setText(width < 450 ? preview : preview + " on Save");
+      }
       else
          srcOnSaveLabel_.setText(width < 450 ? "Source" : "Source on Save");
       sourceButton_.setText(width < 400 ? "" : sourceCommandText_);
@@ -602,6 +613,9 @@ public class TextEditingTargetWidget
          addRmdViewerMenuItems(rmdFormatButton_.getMenu());
       }
       setFormatOptionsVisible(true);
+      if (publishButton_ != null)
+         publishButton_.setIsStatic(true);
+      isShiny_ = false;
    }
 
    @Override
@@ -639,6 +653,26 @@ public class TextEditingTargetWidget
                   commands_.knitDocument().getShortcutPrettyHtml()) + ")");
       knitDocumentButton_.setText(knitCommandText_);
       knitDocumentButton_.setLeftImage(StandardIcons.INSTANCE.run());
+      isShiny_ = true;
+      if (publishButton_ != null)
+         publishButton_.setIsStatic(false);
+   }
+   
+   @Override
+   public void setPublishPath(int contentType, String publishPath)
+   {
+      if (publishButton_ != null)
+      {
+         if (contentType == RSConnect.CONTENT_TYPE_APP)
+         {
+            publishButton_.setContentPath(publishPath, "");
+            publishButton_.setContentType(contentType);
+         }
+         else
+         {
+            publishButton_.setRmd(publishPath, !isShiny_);
+         }
+      }
    }
 
    private void setFormatText(String text)
@@ -654,7 +688,9 @@ public class TextEditingTargetWidget
       previewHTMLButton_.setText(previewCommandText_);
    }
    
-   private void setSourceButtonFromScriptState(boolean isScript, boolean isMermaid)
+   private void setSourceButtonFromScriptState(boolean isScript, 
+                                               boolean canPreviewFromR,
+                                               String previewButtonText)
    {
       sourceCommandText_ = commands_.sourceActiveDocument().getButtonLabel();
       String sourceCommandDesc = commands_.sourceActiveDocument().getDesc();
@@ -665,10 +701,10 @@ public class TextEditingTargetWidget
          sourceButton_.setLeftImage(
                            commands_.debugContinue().getImageResource());
       }
-      else if (isMermaid)
+      else if (canPreviewFromR)
       {
-         sourceCommandText_ = "Preview";
-         sourceCommandDesc = "Save changes and preview the diagram";
+         sourceCommandText_ = previewButtonText;
+         sourceCommandDesc = "Save changes and preview";
          sourceButton_.setLeftImage(
                            commands_.debugContinue().getImageResource());
       }
@@ -769,6 +805,7 @@ public class TextEditingTargetWidget
    private ToolbarButton shinyLaunchButton_;
    private ToolbarButton editRmdFormatButton_;
    private ToolbarPopupMenuButton rmdFormatButton_;
+   private RSConnectPublishButton publishButton_;
    private MenuItem rmdViewerPaneMenuItem_;
    private MenuItem rmdViewerWindowMenuItem_;
    private HandlerManager handlerManager_;
@@ -783,4 +820,5 @@ public class TextEditingTargetWidget
    private String sourceCommandText_ = "Source";
    private String knitCommandText_ = "Knit";
    private String previewCommandText_ = "Preview";
+   private boolean isShiny_ = false;
 }

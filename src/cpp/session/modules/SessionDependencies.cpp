@@ -105,13 +105,16 @@ const int kEmbeddedPackageDependency = 1;
 
 struct Dependency
 {
-   Dependency() : type(0) {}
+   Dependency() : type(0), source(false), versionSatisfied(true) {}
 
    bool empty() const { return name.empty(); }
 
    int type;
    std::string name;
    std::string version;
+   bool source;
+   std::string availableVersion;
+   bool versionSatisfied;
 };
 
 std::string nameFromDep(const Dependency& dep)
@@ -141,7 +144,8 @@ std::vector<Dependency> dependenciesFromJson(const json::Array& depsJson)
          Error error = json::readObject(depJson,
                                         "type", &(dep.type),
                                         "name", &(dep.name),
-                                        "version", &(dep.version));
+                                        "version", &(dep.version),
+                                        "source", &(dep.source));
          if (!error)
          {
             deps.push_back(dep);
@@ -164,6 +168,9 @@ json::Array dependenciesToJson(const std::vector<Dependency>& deps)
       depJson["type"] = dep.type;
       depJson["name"] = dep.name;
       depJson["version"] = dep.version;
+      depJson["source"] = dep.source;
+      depJson["available_version"] = dep.availableVersion;
+      depJson["version_satisfied"] = dep.versionSatisfied;
       depsJson.push_back(depJson);
    }
    return depsJson;
@@ -211,13 +218,32 @@ Error unsatisfiedDependencies(const json::JsonRpcRequest& request,
    // build the list of unsatisifed dependencies
    using namespace module_context;
    std::vector<Dependency> unsatisfiedDeps;
-   BOOST_FOREACH(const Dependency& dep, deps)
+   BOOST_FOREACH(Dependency& dep, deps)
    {
       switch(dep.type)
       {
       case kCRANPackageDependency:
          if (!isPackageVersionInstalled(dep.name, dep.version))
          {
+            // presume package is available unless we can demonstrate otherwise
+            // (we don't want to block installation attempt unless we're
+            // reasonably confident it will not result in a viable version)
+            r::sexp::Protect protect;
+            SEXP versionInfo = R_NilValue;
+
+            // find the version that will be installed from CRAN
+            error = r::exec::RFunction(".rs.packageCRANVersionAvailable", 
+                  dep.name, dep.version, dep.source).call(&versionInfo, &protect);
+            if (error) {
+               LOG_ERROR(error);
+            } else {
+               // if these fail, we'll fall back on defaults set above
+               r::sexp::getNamedListElement(versionInfo, "version", 
+                     &dep.availableVersion);
+               r::sexp::getNamedListElement(versionInfo, "satisfied", 
+                     &dep.versionSatisfied);
+            }
+
             unsatisfiedDeps.push_back(dep);
          }
          break;
@@ -295,13 +321,17 @@ Error installDependencies(const json::JsonRpcRequest& request,
 
    // build lists of cran packages and archives
    std::vector<std::string> cranPackages;
+   std::vector<std::string> cranSourcePackages;
    std::vector<std::string> embeddedPackages;
    BOOST_FOREACH(const Dependency& dep, deps)
    {
       switch(dep.type)
       {
       case kCRANPackageDependency:
-         cranPackages.push_back("'" + dep.name + "'");
+         if (dep.source)
+            cranSourcePackages.push_back("'" + dep.name + "'");
+         else
+            cranPackages.push_back("'" + dep.name + "'");
          break;
 
       case kEmbeddedPackageDependency:
@@ -319,6 +349,13 @@ Error installDependencies(const json::JsonRpcRequest& request,
       std::string pkgList = boost::algorithm::join(cranPackages, ",");
       cmd += "utils::install.packages(c(" + pkgList + "), " +
              "repos = '"+ module_context::CRANReposURL() + "');";
+   }
+   if (!cranSourcePackages.empty())
+   {
+      std::string pkgList = boost::algorithm::join(cranSourcePackages, ",");
+      cmd += "utils::install.packages(c(" + pkgList + "), " +
+             "repos = '"+ module_context::CRANReposURL() +
+             "', type = 'source');";
    }
    BOOST_FOREACH(const std::string& pkg, embeddedPackages)
    {

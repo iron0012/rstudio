@@ -173,11 +173,19 @@ private:
                               [defaultExtension length] > 0;
    if (hasDefaultExtension)
    {
-      // The method is invoked with an extension like ".R", but NSSavePanel
-      // expects extensions to look like "R" (i.e. no leading period).
-      NSArray *extensions = [NSArray arrayWithObject:
-                                [defaultExtension substringFromIndex: 1]];
-  
+      NSArray* extensions;
+      if ([defaultExtension isEqualToString: @".cpp"])
+      {
+         extensions = @[@"cpp", @"c", @"hpp", @"h"];
+      }
+      else
+      {
+         // The method is invoked with an extension like ".R", but NSSavePanel
+         // expects extensions to look like "R" (i.e. no leading period).
+         extensions = [NSArray arrayWithObject:
+                       [defaultExtension substringFromIndex: 1]];
+      }
+      
       [save setAllowedFileTypes: extensions];
       [save setAllowsOtherFileTypes: !forceDefaultExtension];
    }
@@ -626,7 +634,7 @@ private:
    NSImage* image = [self nsImageForPageRegion: regionRect];
    
    // determine format and properties for writing file
-   NSBitmapImageFileType imageFileType = nil;
+   NSBitmapImageFileType imageFileType;
    NSDictionary* properties = nil;
    if ([format isEqualToString: @"png"])
    {
@@ -643,6 +651,10 @@ private:
       imageFileType = NSTIFFFileType;
       [properties setValue: [NSNumber numberWithInteger: NSTIFFCompressionNone]
                     forKey: NSImageCompressionMethod];
+   }
+   else // keep compiler happy
+   {
+      imageFileType = NSPNGFileType;
    }
    
    // write to file

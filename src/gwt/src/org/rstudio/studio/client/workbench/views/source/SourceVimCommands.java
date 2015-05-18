@@ -127,6 +127,79 @@ public class SourceVimCommands
    
    }-*/;
    
+   public native final void reflowText(Source source) /*-{
+   
+     var Vim = $wnd.require("ace/keyboard/vim").CodeMirror.Vim;
+     
+     var callback = $entry(function(cm, args, vim) {
+        source.@org.rstudio.studio.client.workbench.views.source.Source::reflowText()();
+        if (vim.visualMode)
+           Vim.exitVisualMode(cm, false);
+     });
+     
+     Vim.defineAction("reflowText", callback);
+     Vim.mapCommand({
+        keys: "gq",
+        type: "action",
+        action: "reflowText",
+        isEdit: true,
+        context: "visual"
+     });
+     Vim.mapCommand({
+        keys: "gqq",
+        type: "action",
+        action: "reflowText",
+        isEdit: true,
+        context: "normal"
+     });
+   }-*/;
+   
+   public native final void reindent(Source source) /*-{
+      
+      var Vim = $wnd.require("ace/keyboard/vim").CodeMirror.Vim;
+      var callback = $entry(function(cm, args, vim) {
+         source.@org.rstudio.studio.client.workbench.views.source.Source::reindent()();
+         if (vim.visualMode)
+            Vim.exitVisualMode(cm, false);
+      });
+      
+      Vim.defineAction("reindent", callback);
+      
+      Vim.mapCommand({
+         keys: "==",
+         type: "action",
+         action: "reindent",
+         isEdit: true,
+         context: "normal"
+      });
+      
+      Vim.mapCommand({
+         keys: "=",
+         type: "action",
+         action: "reindent",
+         isEdit: true,
+         context: "visual"
+      });
+      
+   }-*/;
+   
+   public native final void showHelpAtCursor(Source source) /*-{
+     var Vim = $wnd.require("ace/keyboard/vim").CodeMirror.Vim;
+     
+     var callback = $entry(function(cm, args, vim) {
+        source.@org.rstudio.studio.client.workbench.views.source.Source::showHelpAtCursor()();
+     });
+     
+     Vim.defineAction("showHelpAtCursor", callback);
+     Vim.mapCommand({
+        keys: "K",
+        type: "action",
+        action: "showHelpAtCursor",
+        isEdit: false,
+        context: "normal"
+     });
+   }-*/;
+
    public native final void showVimHelp(ShortcutViewer viewer) /*-{
 
       var callback = $entry(function(cm, params) {

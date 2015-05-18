@@ -1,7 +1,7 @@
 /*
  * Source.java
  *
- * Copyright (C) 2009-12 by RStudio, Inc.
+ * Copyright (C) 2009-15 by RStudio, Inc.
  *
  * Unless you have received this program directly from RStudio pursuant
  * to the terms of a commercial license agreement with RStudio, then
@@ -27,6 +27,9 @@ import com.google.gwt.json.client.JSONString;
 import com.google.gwt.json.client.JSONValue;
 import com.google.gwt.resources.client.ImageResource;
 import com.google.gwt.user.client.Command;
+import com.google.gwt.user.client.Event;
+import com.google.gwt.user.client.Event.NativePreviewEvent;
+import com.google.gwt.user.client.Event.NativePreviewHandler;
 import com.google.gwt.user.client.Timer;
 import com.google.gwt.user.client.ui.IsWidget;
 import com.google.gwt.user.client.ui.Widget;
@@ -82,6 +85,8 @@ import org.rstudio.studio.client.workbench.model.SessionUtils;
 import org.rstudio.studio.client.workbench.model.UnsavedChangesTarget;
 import org.rstudio.studio.client.workbench.model.helper.IntStateValue;
 import org.rstudio.studio.client.workbench.prefs.model.UIPrefs;
+import org.rstudio.studio.client.workbench.snippets.SnippetHelper;
+import org.rstudio.studio.client.workbench.snippets.model.SnippetsChangedEvent;
 import org.rstudio.studio.client.workbench.ui.unsaved.UnsavedChangesDialog;
 import org.rstudio.studio.client.workbench.views.data.events.ViewDataEvent;
 import org.rstudio.studio.client.workbench.views.data.events.ViewDataHandler;
@@ -131,7 +136,8 @@ public class Source implements InsertSourceHandler,
                              CodeBrowserFinishedHandler,
                              CodeBrowserHighlightEvent.Handler,
                              SourceExtendedTypeDetectedEvent.Handler,
-                             BeforeShowHandler
+                             BeforeShowHandler,
+                             SnippetsChangedEvent.Handler
 {
    public interface Display extends IsWidget,
                                     HasTabClosingHandlers,
@@ -214,7 +220,7 @@ public class Source implements InsertSourceHandler,
       rnwWeaveRegistry_ = rnwWeaveRegistry;
       
       vimCommands_ = new SourceVimCommands();
-
+      
       view_.addTabClosingHandler(this);
       view_.addTabCloseHandler(this);
       view_.addTabClosedHandler(this);
@@ -282,6 +288,8 @@ public class Source implements InsertSourceHandler,
       dynamicCommands_.add(commands.vcsBlameOnGitHub());
       dynamicCommands_.add(commands.editRmdFormatOptions());
       dynamicCommands_.add(commands.reformatCode());
+      dynamicCommands_.add(commands.showDiagnosticsActiveDocument());
+      dynamicCommands_.add(commands.insertRoxygenSkeleton());
       for (AppCommand command : dynamicCommands_)
       {
          command.setVisible(false);
@@ -302,7 +310,8 @@ public class Source implements InsertSourceHandler,
                192,
                commands.executeNextChunk(), 
                "Execute",
-               commands.executeNextChunk().getMenuLabel(false));
+               commands.executeNextChunk().getMenuLabel(false), 
+               "");
       }
 
       events.addHandler(ShowContentEvent.TYPE, this);
@@ -398,7 +407,26 @@ public class Source implements InsertSourceHandler,
             manageSynctexCommands();
          }
       });
-
+      
+      // Suppress 'CTRL + ALT + SHIFT + click' to work around #2483 in Ace
+      Event.addNativePreviewHandler(new NativePreviewHandler()
+      {
+         @Override
+         public void onPreviewNativeEvent(NativePreviewEvent event)
+         {
+            int type = event.getTypeInt();
+            if (type == Event.ONMOUSEDOWN || type == Event.ONMOUSEUP)
+            {
+               int modifier = KeyboardShortcut.getModifierValue(event.getNativeEvent());
+               if (modifier == (KeyboardShortcut.ALT | KeyboardShortcut.CTRL | KeyboardShortcut.SHIFT))
+               {
+                  event.cancel();
+                  return;
+               }
+            }
+         }
+      });
+      
       restoreDocuments(session);
 
       new IntStateValue(MODULE_SOURCE, KEY_ACTIVETAB, ClientState.PROJECT_PERSISTENT,
@@ -436,8 +464,21 @@ public class Source implements InsertSourceHandler,
             AceEditorNative.setVerticallyAlignFunctionArgs(arg);
          }
       });
-       
+      
+      // adjust shortcuts when vim mode changes
+      uiPrefs_.useVimMode().bind(new CommandWithArg<Boolean>()
+      {
+         @Override
+         public void execute(Boolean arg)
+         {
+            ShortcutManager.INSTANCE.setEditorMode(arg ? 
+                  KeyboardShortcut.MODE_VIM :
+                  KeyboardShortcut.MODE_NONE);
+         }
+      });
+
       initialized_ = true;
+
       // As tabs were added before, manageCommands() was suppressed due to
       // initialized_ being false, so we need to run it explicitly
       manageCommands();
@@ -462,8 +503,11 @@ public class Source implements InsertSourceHandler,
       vimCommands_.saveAndCloseActiveTab(this);
       vimCommands_.readFile(this, uiPrefs_.defaultEncoding().getValue());
       vimCommands_.runRScript(this);
+      vimCommands_.reflowText(this);
       vimCommands_.showVimHelp(
             RStudioGinjector.INSTANCE.getShortcutViewer());
+      vimCommands_.showHelpAtCursor(this);
+      vimCommands_.reindent(this);
    }
    
    private void closeAllTabs(boolean interactive)
@@ -2420,13 +2464,18 @@ public class Source implements InsertSourceHandler,
    
    private void manageRSConnectCommands()
    {
-      boolean shinyCommandsAvailable = 
+      boolean rsCommandsAvailable = 
             SessionUtils.showPublishUi(session_, uiPrefs_) &&
             (activeEditor_ != null) &&
             (activeEditor_.getPath() != null) &&
-            ((activeEditor_.getExtendedFileType() == "shiny"));
-      commands_.rsconnectDeploy().setVisible(shinyCommandsAvailable);
-      commands_.rsconnectConfigure().setVisible(shinyCommandsAvailable);
+            ((activeEditor_.getExtendedFileType() == "shiny") ||
+             (activeEditor_.getExtendedFileType() == "rmarkdown"));
+      commands_.rsconnectDeploy().setVisible(rsCommandsAvailable);
+      if (activeEditor_ != null)
+         commands_.rsconnectDeploy().setLabel(
+               activeEditor_.getExtendedFileType() == "shiny" ?
+               "Publish Application..." : "Publish Document...");
+      commands_.rsconnectConfigure().setVisible(rsCommandsAvailable);
    }
    
    private void manageRMarkdownCommands()
@@ -2516,6 +2565,24 @@ public class Source implements InsertSourceHandler,
       });
    }
    
+   private void reflowText()
+   {
+      if (activeEditor_ != null && activeEditor_ instanceof TextEditingTarget)
+      {
+         TextEditingTarget editor = (TextEditingTarget) activeEditor_;
+         editor.reflowText();
+      }
+   }
+   
+   private void reindent()
+   {
+      if (activeEditor_ != null && activeEditor_ instanceof TextEditingTarget)
+      {
+         TextEditingTarget editor = (TextEditingTarget) activeEditor_;
+         editor.getDocDisplay().reindent();
+      }
+   }
+   
    private void editFile(final String path)
    {
       server_.ensureFileExists(
@@ -2538,6 +2605,15 @@ public class Source implements InsertSourceHandler,
                   Debug.logError(error);
                }
             });
+   }
+   
+   private void showHelpAtCursor()
+   {
+      if (activeEditor_ != null && activeEditor_ instanceof TextEditingTarget)
+      {
+         TextEditingTarget editor = (TextEditingTarget) activeEditor_;
+         editor.showHelpAtCursor();
+      }
    }
 
    public void onFileEdit(FileEditEvent event)
@@ -2865,6 +2941,12 @@ public class Source implements InsertSourceHandler,
       }
    }
    
+   @Override
+   public void onSnippetsChanged(SnippetsChangedEvent event)
+   {
+      SnippetHelper.onSnippetsChanged(event);
+   }
+   
    // when tabs have been reordered in the session, the physical layout of the
    // tabs doesn't match the logical order of editors_. it's occasionally
    // necessary to get or set the tabs by their physical order.
@@ -2887,11 +2969,11 @@ public class Source implements InsertSourceHandler,
       view_.selectTab(idx);
    }
    
-   private EditingTarget getActiveEditor()
+   public EditingTarget getActiveEditor()
    {
       return activeEditor_;
    }
-
+   
    ArrayList<EditingTarget> editors_ = new ArrayList<EditingTarget>();
    ArrayList<Integer> tabOrder_ = new ArrayList<Integer>();
    private EditingTarget activeEditor_;

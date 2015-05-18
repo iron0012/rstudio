@@ -58,6 +58,9 @@
 // point the column's text is searched as though it were a character column)
 #define MAX_FACTORS 64
 
+// special cell values
+#define SPECIAL_CELL_NA 0
+
 using namespace rstudio::core;
 
 namespace rstudio {
@@ -153,16 +156,16 @@ bool isFilterSubset(const std::string& outer, const std::string& inner)
 
    if (outerType == "numeric")
    {
-      // matches a numeric filter (i.e. "2.71-3.14") -- in this case we need to
+      // matches a numeric filter (i.e. "2.71_3.14") -- in this case we need to
       // check the components for range inclusion
-      boost::regex numFilter("(\\d+\\.?\\d*)-(\\d+\\.?\\d*)");
+      boost::regex numFilter("(-?\\d+\\.?\\d*)_(-?\\d+\\.?\\d*)");
       boost::smatch innerMatch, outerMatch;
       if (boost::regex_search(innerValue, innerMatch, numFilter) &&
           boost::regex_search(outerValue, outerMatch, numFilter))
       {
-         // for numeric filters, the inner is a subset if its lower bound (1) is 
-         // larger than the outer lower bound, and the upper bound (2) is smaller
-         // than the outer upper bound
+         // for numeric filters, the inner is a subset if its lower bound (1)
+         // is larger than the outer lower bound, and the upper bound (2) is
+         // smaller than the outer upper bound
          return safe_convert::stringTo<double>(innerMatch[1], 0) >= 
                 safe_convert::stringTo<double>(outerMatch[1], 0) &&
                 safe_convert::stringTo<double>(innerMatch[2], 0) <= 
@@ -172,10 +175,10 @@ bool isFilterSubset(const std::string& outer, const std::string& inner)
       // if not identical and not a range, then not a subset
       return false;
    } 
-   else if (outerType == "factor")
+   else if (outerType == "factor" || outerType == "boolean")
    {
-      // factors have to be identical for subsetting, and we already checked
-      // above
+      // factors and boolean values have to be identical for subsetting, and we
+      // already checked above
       return false;
    }
    else if (outerType == "character")
@@ -470,8 +473,9 @@ json::Value getData(SEXP dataSEXP, const http::Fields& fields)
          -1);
    std::string orderdir = http::util::fieldValue<std::string>(fields, 
          "order[0][dir]", "asc");
-   std::string search = http::util::fieldValue<std::string>(fields, 
-         "search[value]", "");
+   std::string search = http::util::urlDecode(
+         http::util::fieldValue<std::string>(fields, "search[value]", ""), 
+         true);
    std::string cacheKey = http::util::urlDecode(
          http::util::fieldValue<std::string>(fields, "cache_key", ""), 
          true);
@@ -486,9 +490,10 @@ json::Value getData(SEXP dataSEXP, const http::Fields& fields)
    bool hasFilter = false;
    for (int i = 1; i <= ncol; i++) 
    {
-      std::string filterVal = http::util::fieldValue<std::string>(fields,
+      std::string filterVal = http::util::urlDecode( 
+            http::util::fieldValue<std::string>(fields,
                   "columns[" + boost::lexical_cast<std::string>(i) + "]" 
-                  "[search][value]", "");
+                  "[search][value]", ""), true);
       if (!filterVal.empty()) 
       {
          hasFilter = true;
@@ -622,7 +627,7 @@ json::Value getData(SEXP dataSEXP, const http::Fields& fields)
              nameSEXP != NA_STRING &&
              r::sexp::length(nameSEXP) > 0)
          {
-            rowData.push_back(Rf_translateChar(nameSEXP));
+            rowData.push_back(Rf_translateCharUTF8(nameSEXP));
          }
          else
          {
@@ -646,7 +651,11 @@ json::Value getData(SEXP dataSEXP, const http::Fields& fields)
                 stringSEXP != NA_STRING &&
                 r::sexp::length(stringSEXP) > 0)
             {
-               rowData.push_back(Rf_translateChar(stringSEXP));
+               rowData.push_back(Rf_translateCharUTF8(stringSEXP));
+            }
+            else if (stringSEXP == NA_STRING) 
+            {
+               rowData.push_back(SPECIAL_CELL_NA);
             }
             else
             {
@@ -677,17 +686,9 @@ Error getGridData(const http::Request& request,
 
    try
    {
-      // extract the query string; if we don't find it, it's a no-op
-      std::string::size_type pos = request.uri().find('?');
-      if (pos == std::string::npos)
-      {
-         return Success();
-      }
-
       // find the data frame we're going to be pulling data from
-      std::string queryString = request.uri().substr(pos+1);
       http::Fields fields;
-      http::util::parseQueryString(queryString, &fields);
+      http::util::parseForm(request.body(), &fields);
       std::string envName = http::util::urlDecode(
             http::util::fieldValue<std::string>(fields, "env", ""), true);
       std::string objName = http::util::urlDecode(

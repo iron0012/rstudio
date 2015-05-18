@@ -31,6 +31,30 @@ context("isSubsequence")
       expect_true(isSubsequence("abcdef", "AeF", true));
       expect_true(isSubsequence("a1d2", "12"));
    }
+   
+   test_that("strippedOfBackQuotes works")
+   {
+      std::string string = "`abc`";
+      std::string stripped = strippedOfBackQuotes(string);
+      expect_true(stripped == "abc");
+      
+      expect_true(strippedOfBackQuotes("abc") == "abc");
+      
+   }
+   
+   test_that("substring works")
+   {
+      std::string string("  abc  ");
+      expect_true(substring(string, 2, 5) == "abc");
+   }
+   
+   test_that("trimWhitespace works")
+   {
+      std::string string("   abc   ");
+      expect_true(trimWhitespace(string) == "abc");
+      expect_true(trimWhitespace("abc") == "abc");
+      expect_true(trimWhitespace("") == "");
+   }
 }
 
 } // end namespace string_utils

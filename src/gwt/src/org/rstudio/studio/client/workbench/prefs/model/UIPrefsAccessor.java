@@ -20,6 +20,7 @@ import org.rstudio.studio.client.application.Desktop;
 import org.rstudio.studio.client.notebook.CompileNotebookPrefs;
 import org.rstudio.studio.client.notebookv2.CompileNotebookv2Prefs;
 import org.rstudio.studio.client.rmarkdown.RmdOutput;
+import org.rstudio.studio.client.rsconnect.model.RSConnectAccount;
 import org.rstudio.studio.client.shiny.model.ShinyViewerType;
 import org.rstudio.studio.client.workbench.exportplot.model.ExportPlotOptions;
 import org.rstudio.studio.client.workbench.ui.PaneConfig;
@@ -115,15 +116,35 @@ public class UIPrefsAccessor extends Prefs
    {
       return bool("tab_multiline_completion", false);
    }
+   
+   public PrefValue<Boolean> enableSnippets()
+   {
+      return bool("enable_snippets", true);
+   }
  
    public PrefValue<String> codeComplete()
    {
       return string("code_complete", COMPLETION_ALWAYS);
    }
    
+   public PrefValue<String> codeCompleteOther()
+   {
+      return string("code_complete_other", COMPLETION_ALWAYS);
+   }
+   
    public PrefValue<Boolean> alwaysCompleteInConsole()
    {
       return bool("always_complete_console", true);
+   }
+   
+   public PrefValue<Integer> alwaysCompleteDelayMs()
+   {
+      return integer("always_complete_delay", 250);
+   }
+   
+   public PrefValue<Integer> alwaysCompleteCharacters()
+   {
+      return integer("always_complete_characters", 3);
    }
    
    public PrefValue<Boolean> insertParensAfterFunctionCompletion()
@@ -141,9 +162,59 @@ public class UIPrefsAccessor extends Prefs
       return bool("show_signature_tooltips", true);
    }
    
-   public PrefValue<Boolean> showDiagnostics()
+   public PrefValue<Boolean> showDiagnosticsR()
    {
-      return bool("show_diagnostics", true);
+      return bool("show_diagnostics_r", true);
+   }
+   
+   public PrefValue<Boolean> showDiagnosticsCpp()
+   {
+      return bool("show_diagnostics_cpp", true);
+   }
+   
+   public PrefValue<Boolean> showDiagnosticsOther()
+   {
+      return bool("show_diagnostics_other", true);
+   }
+   
+   public PrefValue<Boolean> enableStyleDiagnostics()
+   {
+      return bool("enable_style_diagnostics", false);
+   }
+   
+   public PrefValue<Boolean> diagnosticsOnSave()
+   {
+      return bool("diagnostics_on_save", true);
+   }
+   
+   public PrefValue<Boolean> enableBackgroundDiagnostics()
+   {
+      return bool("enable_background_diagnostics", true);
+   }
+   
+   public PrefValue<Integer> backgroundDiagnosticsDelayMs()
+   {
+      return integer("background_diagnostics_delay_ms", 2000);
+   }
+   
+   public PrefValue<Boolean> diagnosticsInRFunctionCalls()
+   {
+      return bool("diagnostics_in_function_calls", true);
+   }
+   
+   public PrefValue<Boolean> checkArgumentsToRFunctionCalls()
+   {
+      return bool("check_arguments_to_r_function_calls", false);
+   }
+   
+   public PrefValue<Boolean> warnIfNoSuchVariableInScope()
+   {
+      return bool("warn_if_no_such_variable_in_scope", false);
+   }
+   
+   public PrefValue<Boolean> warnIfVariableDefinedButNotUsed()
+   {
+      return bool("warn_if_variable_defined_but_not_used", false);
    }
    
    public PrefValue<Boolean> autoAppendNewline()
@@ -174,6 +245,11 @@ public class UIPrefsAccessor extends Prefs
    public PrefValue<Boolean> focusConsoleAfterExec()
    {
       return bool("focus_console_after_exec", false);
+   }
+   
+   public PrefValue<Boolean> saveBeforeSourcing()
+   {
+      return bool("save_before_sourcing", true);
    }
    
    public PrefValue<Boolean> syntaxColorConsole()
@@ -398,6 +474,11 @@ public class UIPrefsAccessor extends Prefs
    public PrefValue<Boolean> enableRStudioConnect()
    {
       return bool("enable_rstudio_connect", false);
+   }
+   
+   public PrefValue<RSConnectAccount> preferredPublishAccount()
+   {
+      return object("preferred_publish_account");
    }
 
    private String getDefaultPdfPreview()

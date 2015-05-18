@@ -64,15 +64,16 @@ import org.rstudio.studio.client.rmarkdown.model.RmdDiscoveredTemplate;
 import org.rstudio.studio.client.rmarkdown.model.RmdRenderResult;
 import org.rstudio.studio.client.rmarkdown.model.RmdShinyDocInfo;
 import org.rstudio.studio.client.rsconnect.events.EnableRStudioConnectUIEvent;
+import org.rstudio.studio.client.rsconnect.events.RSConnectDeploymentCompletedEvent;
+import org.rstudio.studio.client.rsconnect.events.RSConnectDeploymentOutputEvent;
 import org.rstudio.studio.client.server.Bool;
 import org.rstudio.studio.client.shiny.events.ShinyApplicationStatusEvent;
-import org.rstudio.studio.client.shiny.events.RSConnectDeploymentCompletedEvent;
-import org.rstudio.studio.client.shiny.events.RSConnectDeploymentOutputEvent;
 import org.rstudio.studio.client.shiny.model.ShinyApplicationParams;
 import org.rstudio.studio.client.workbench.codesearch.model.SearchPathFunctionDefinition;
 import org.rstudio.studio.client.workbench.events.*;
 import org.rstudio.studio.client.workbench.model.*;
 import org.rstudio.studio.client.workbench.prefs.events.UiPrefsChangedEvent;
+import org.rstudio.studio.client.workbench.snippets.model.SnippetsChangedEvent;
 import org.rstudio.studio.client.workbench.views.buildtools.events.BuildCompletedEvent;
 import org.rstudio.studio.client.workbench.views.buildtools.events.BuildErrorsEvent;
 import org.rstudio.studio.client.workbench.views.buildtools.events.BuildOutputEvent;
@@ -97,6 +98,7 @@ import org.rstudio.studio.client.workbench.views.history.events.HistoryEntriesAd
 import org.rstudio.studio.client.workbench.views.history.model.HistoryEntry;
 import org.rstudio.studio.client.workbench.views.output.find.events.FindOperationEndedEvent;
 import org.rstudio.studio.client.workbench.views.output.find.events.FindResultEvent;
+import org.rstudio.studio.client.workbench.views.output.lint.events.LintEvent;
 import org.rstudio.studio.client.workbench.views.output.markers.events.MarkersChangedEvent;
 import org.rstudio.studio.client.workbench.views.output.sourcecpp.events.SourceCppCompletedEvent;
 import org.rstudio.studio.client.workbench.views.output.sourcecpp.events.SourceCppStartedEvent;
@@ -632,6 +634,21 @@ public class ClientEventDispatcher
          {
             EnableRStudioConnectUIEvent.Data data = event.getData();
             eventBus_.fireEvent(new EnableRStudioConnectUIEvent(data));
+         }
+         else if (type.equals(ClientEvent.UpdateGutterMarkers))
+         {
+            LintEvent.Data data = event.getData();
+            eventBus_.fireEvent(new LintEvent(data));
+         }
+         else if (type.equals(ClientEvent.SnippetsChanged))
+         {
+            SnippetsChangedEvent.Data data = event.getData();
+            eventBus_.fireEvent(new SnippetsChangedEvent(data));
+         }
+         else if (type.equals(ClientEvent.JumpToFunction))
+         {
+            JumpToFunctionEvent.Data data = event.getData();
+            eventBus_.fireEvent(new JumpToFunctionEvent(data));
          }
          else
          {

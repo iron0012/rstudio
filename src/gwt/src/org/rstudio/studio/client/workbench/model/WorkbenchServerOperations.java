@@ -22,6 +22,7 @@ import org.rstudio.studio.client.common.crypto.CryptoServerOperations;
 import org.rstudio.studio.client.common.debugging.DebuggingServerOperations;
 import org.rstudio.studio.client.common.dependencies.model.DependencyServerOperations;
 import org.rstudio.studio.client.common.mirrors.model.MirrorsServerOperations;
+import org.rstudio.studio.client.common.r.roxygen.RoxygenServerOperations;
 import org.rstudio.studio.client.common.spelling.model.SpellingServerOperations;
 import org.rstudio.studio.client.common.synctex.model.SynctexServerOperations;
 import org.rstudio.studio.client.common.vcs.GitServerOperations;
@@ -34,6 +35,7 @@ import org.rstudio.studio.client.server.Void;
 import org.rstudio.studio.client.workbench.codesearch.model.CodeSearchServerOperations;
 import org.rstudio.studio.client.workbench.prefs.model.PrefsServerOperations;
 import org.rstudio.studio.client.workbench.prefs.model.RPrefs;
+import org.rstudio.studio.client.workbench.snippets.SnippetServerOperations;
 import org.rstudio.studio.client.workbench.views.buildtools.model.BuildServerOperations;
 import org.rstudio.studio.client.workbench.views.choosefile.model.ChooseFileServerOperations;
 import org.rstudio.studio.client.workbench.views.console.model.ConsoleServerOperations;
@@ -41,6 +43,7 @@ import org.rstudio.studio.client.workbench.views.data.model.DataServerOperations
 import org.rstudio.studio.client.workbench.views.edit.model.EditServerOperations;
 import org.rstudio.studio.client.workbench.views.files.model.FilesServerOperations;
 import org.rstudio.studio.client.workbench.views.output.find.model.FindInFilesServerOperations;
+import org.rstudio.studio.client.workbench.views.output.lint.model.LintServerOperations;
 import org.rstudio.studio.client.workbench.views.output.markers.model.MarkersServerOperations;
 import org.rstudio.studio.client.workbench.views.help.model.HelpServerOperations;
 import org.rstudio.studio.client.workbench.views.history.model.HistoryServerOperations;
@@ -84,7 +87,10 @@ public interface WorkbenchServerOperations extends ConsoleServerOperations,
                                                    RMarkdownServerOperations,
                                                    DependencyServerOperations,
                                                    PackratServerOperations,
-                                                   MarkersServerOperations
+                                                   MarkersServerOperations,
+                                                   LintServerOperations,
+                                                   RoxygenServerOperations,
+                                                   SnippetServerOperations
 {   
    void initializeForMainWorkbench();
    void disconnect();

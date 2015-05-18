@@ -27,6 +27,7 @@
 #include <core/Exec.hpp>
 #include <core/system/Environment.hpp>
 #include <core/system/Process.hpp>
+#include <core/StringUtils.hpp>
 
 #include <r/RExec.hpp>
 #include <r/RJson.hpp>
@@ -175,7 +176,8 @@ private:
       }
 
       std::string extraParams;
-      std::string targetFile = targetFile_.absolutePath();
+      std::string targetFile =
+              string_utils::utf8ToSystem(targetFile_.absolutePath());
 
       std::string renderOptions("encoding = '" + encoding + "'");
 
@@ -206,7 +208,8 @@ private:
       {
          extraParams += "shiny_args = list(launch.browser = FALSE), "
                         "auto_reload = FALSE, ";
-         extraParams += "dir = '" + targetFile_.parent().absolutePath() + "', ";
+         extraParams += "dir = '" + string_utils::utf8ToSystem(
+                     targetFile_.parent().absolutePath()) + "', ";
 
          std::string rsIFramePath("rsiframe.js");
 
@@ -260,17 +263,19 @@ private:
       // start the async R process with the render command
       allOutput_.clear();
       async_r::AsyncRProcess::start(cmd.c_str(), targetFile_.parent(),
-                                    async_r::R_PROCESS_NORMAL);
+                                    async_r::R_PROCESS_NO_RDATA);
    }
 
    void onStdout(const std::string& output)
    {
-      onRenderOutput(module_context::kCompileOutputNormal, output);
+      onRenderOutput(module_context::kCompileOutputNormal,
+                     string_utils::systemToUtf8(output));
    }
 
    void onStderr(const std::string& output)
    {
-      onRenderOutput(module_context::kCompileOutputError, output);
+      onRenderOutput(module_context::kCompileOutputError,
+                     string_utils::systemToUtf8(output));
    }
 
    void onRenderOutput(int type, const std::string& output)
@@ -458,7 +463,7 @@ private:
       r::sexp::Protect protect;
       SEXP sexpOutputFormat;
       Error error = r::exec::RFunction("rmarkdown:::default_output_format",
-                                       path, encoding)
+                                       string_utils::utf8ToSystem(path), encoding)
                                       .call(&sexpOutputFormat, &protect);
       if (error)
       {
@@ -1010,6 +1015,42 @@ Error getRmdTemplate(const json::JsonRpcRequest& request,
    return Success();
 }
 
+
+
+Error prepareForRmdChunkExecution(const json::JsonRpcRequest& request,
+                                  json::JsonRpcResponse*)
+{
+   // read id param
+   std::string id;
+   Error error = json::readParams(request.params, &id);
+   if (error)
+      return error;
+
+   // get document contents
+   using namespace source_database;
+   boost::shared_ptr<SourceDocument> pDoc(new SourceDocument());
+   error = source_database::get(id, pDoc);
+   if (error)
+   {
+      LOG_ERROR(error);
+      return error;
+   }
+
+   // evaluate params if we can
+   if (module_context::isPackageVersionInstalled("knitr", "1.10"))
+   {
+      error = r::exec::RFunction(".rs.evaluateRmdParams", pDoc->contents())
+                                                                      .call();
+      if (error)
+      {
+         LOG_ERROR(error);
+         return error;
+      }
+   }
+
+   return Success();
+}
+
 } // anonymous namespace
 
 bool rmarkdownPackageAvailable()
@@ -1044,6 +1085,7 @@ Error initialize()
       (bind(registerRpcMethod, "discover_rmd_templates", discoverRmdTemplates))
       (bind(registerRpcMethod, "create_rmd_from_template", createRmdFromTemplate))
       (bind(registerRpcMethod, "get_rmd_template", getRmdTemplate))
+      (bind(registerRpcMethod, "prepare_for_rmd_chunk_execution", prepareForRmdChunkExecution))
       (bind(registerUriHandler, kRmdOutputLocation, handleRmdOutputRequest))
       (bind(module_context::sourceModuleRFile, "SessionRMarkdown.R"));
 

@@ -43,6 +43,7 @@ import org.rstudio.studio.client.common.filetypes.FileTypeCommands;
 import org.rstudio.studio.client.common.latex.LatexProgramRegistry;
 import org.rstudio.studio.client.common.mirrors.DefaultCRANMirror;
 import org.rstudio.studio.client.common.mirrors.model.MirrorsServerOperations;
+import org.rstudio.studio.client.common.r.roxygen.RoxygenServerOperations;
 import org.rstudio.studio.client.common.rnw.RnwWeaveRegistry;
 import org.rstudio.studio.client.common.rpubs.model.RPubsServerOperations;
 import org.rstudio.studio.client.common.satellite.Satellite;
@@ -102,6 +103,7 @@ import org.rstudio.studio.client.workbench.model.Session;
 import org.rstudio.studio.client.workbench.model.WorkbenchListsServerOperations;
 import org.rstudio.studio.client.workbench.model.WorkbenchServerOperations;
 import org.rstudio.studio.client.workbench.prefs.model.PrefsServerOperations;
+import org.rstudio.studio.client.workbench.snippets.SnippetServerOperations;
 import org.rstudio.studio.client.workbench.ui.WorkbenchScreen;
 import org.rstudio.studio.client.workbench.ui.WorkbenchTab;
 import org.rstudio.studio.client.workbench.views.buildtools.BuildPresenter;
@@ -134,6 +136,7 @@ import org.rstudio.studio.client.workbench.views.output.find.FindOutputPane;
 import org.rstudio.studio.client.workbench.views.output.find.FindOutputPresenter;
 import org.rstudio.studio.client.workbench.views.output.find.FindOutputTab;
 import org.rstudio.studio.client.workbench.views.output.find.model.FindInFilesServerOperations;
+import org.rstudio.studio.client.workbench.views.output.lint.model.LintServerOperations;
 import org.rstudio.studio.client.workbench.views.output.markers.MarkersOutputPane;
 import org.rstudio.studio.client.workbench.views.output.markers.MarkersOutputPresenter;
 import org.rstudio.studio.client.workbench.views.output.markers.MarkersOutputTab;
@@ -354,6 +357,9 @@ public class RStudioGinModule extends AbstractGinModule
       bind(PackratServerOperations.class).to(RemoteServer.class);
       bind(CppServerOperations.class).to(RemoteServer.class);
       bind(MarkersServerOperations.class).to(RemoteServer.class);
+      bind(LintServerOperations.class).to(RemoteServer.class);
+      bind(RoxygenServerOperations.class).to(RemoteServer.class);
+      bind(SnippetServerOperations.class).to(RemoteServer.class);
 
       bind(WorkbenchMainView.class).to(WorkbenchScreen.class) ;
 

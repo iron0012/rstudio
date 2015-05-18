@@ -93,6 +93,8 @@ public abstract class
    public abstract AppCommand foldAll();
    public abstract AppCommand unfoldAll();
    public abstract AppCommand jumpToMatching();
+   public abstract AppCommand selectToMatching();
+   public abstract AppCommand expandToMatching();
    public abstract AppCommand extractFunction();
    public abstract AppCommand extractLocalVariable();
    public abstract AppCommand commentUncomment();
@@ -102,6 +104,8 @@ public abstract class
    public abstract AppCommand codeCompletion();
    public abstract AppCommand findUsages();
    public abstract AppCommand editRmdFormatOptions();
+   public abstract AppCommand insertRoxygenSkeleton();
+   public abstract AppCommand insertSnippet();
  
    // Projects
    public abstract AppCommand newProject();
@@ -183,7 +187,6 @@ public abstract class
    public abstract AppCommand presentationEdit();
    public abstract AppCommand presentationViewInBrowser();
    public abstract AppCommand presentationSaveAsStandalone();
-   public abstract AppCommand presentationPublishToRpubs();
    public abstract AppCommand activatePresentation();
    public abstract AppCommand tutorialFeedback();
    public abstract AppCommand clearPresentationCache();
@@ -235,7 +238,6 @@ public abstract class
    public abstract AppCommand savePlotAsImage();
    public abstract AppCommand savePlotAsPdf();
    public abstract AppCommand copyPlotToClipboard();
-   public abstract AppCommand publishPlotToRPubs();
    public abstract AppCommand zoomPlot();
    public abstract AppCommand removePlot();
    public abstract AppCommand clearPlots();
@@ -306,7 +308,6 @@ public abstract class
    public abstract AppCommand viewerSaveAsImage();
    public abstract AppCommand viewerSaveAsWebPage();
    public abstract AppCommand viewerCopyToClipboard();
-   public abstract AppCommand viewerPublishToRPubs();
 
    // Application
    public abstract AppCommand quitSession();
@@ -363,6 +364,8 @@ public abstract class
    public abstract AppCommand errorsMessage();
    public abstract AppCommand errorsTraceback();
    public abstract AppCommand errorsBreak();
+   public abstract AppCommand showDiagnosticsActiveDocument();
+   public abstract AppCommand showDiagnosticsProject();
    
    // Shiny IDE features
    public abstract AppCommand reloadShinyApp();

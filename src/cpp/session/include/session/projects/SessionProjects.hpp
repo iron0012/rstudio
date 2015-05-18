@@ -94,9 +94,12 @@ public:
    bool hasProject() const { return !file_.empty(); }
 
    // next session project path -- low level value used by suspend
-   // and switch-to-project
    std::string nextSessionProject() const;
    void setNextSessionProject(const std::string& nextSessionProject);
+
+   // switch to project path
+   std::string switchToProjectPath() const;
+   void setSwitchToProjectPath(const std::string& switchToProjectPath);
 
    // last project path -- used to implement restore last project user setting
    core::FilePath lastProjectPath() const;
@@ -148,11 +151,12 @@ public:
       return buildOptions_;
    }
 
-   // current package info (if this is a package)
    const core::r_util::RPackageInfo& packageInfo() const
    {
       return packageInfo_;
    }
+   
+   bool isPackageProject();
 
    // does this project context have a file monitor? (might not have one
    // if the user has disabled code indexing or if file monitoring failed

@@ -22,6 +22,8 @@ import org.rstudio.studio.client.workbench.views.console.shell.assist.Completion
 import org.rstudio.studio.client.workbench.views.console.shell.editor.InputEditorDisplay;
 import org.rstudio.studio.client.workbench.views.console.shell.editor.InputEditorPosition;
 import org.rstudio.studio.client.workbench.views.console.shell.editor.InputEditorSelection;
+import org.rstudio.studio.client.workbench.views.output.lint.model.AceAnnotation;
+import org.rstudio.studio.client.workbench.views.output.lint.model.LintItem;
 import org.rstudio.studio.client.workbench.views.source.editors.text.ace.AceFold;
 import org.rstudio.studio.client.workbench.views.source.editors.text.ace.Anchor;
 import org.rstudio.studio.client.workbench.views.source.editors.text.ace.Mode.InsertChunkInfo;
@@ -69,6 +71,8 @@ public interface DocDisplay extends HasValueChangeHandlers<Void>,
    void setFileType(TextFileType fileType);
    void setFileType(TextFileType fileType, boolean suppressCompletion);
    void setFileType(TextFileType fileType, CompletionManager completionManager);
+   void syncCompletionPrefs();
+   void syncDiagnosticsPrefs();
    void setRnwCompletionContext(RnwCompletionContext rnwContext);
    void setCppCompletionContext(CppCompletionContext cppContext);
    void setRCompletionContext(RCompletionContext rContext);
@@ -171,9 +175,9 @@ public interface DocDisplay extends HasValueChangeHandlers<Void>,
    Scope getCurrentScope();
    Scope getCurrentChunk();
    Scope getCurrentChunk(Position position);
-   Scope getCurrentFunction();
+   ScopeFunction getCurrentFunction(boolean allowAnonymous);
    Scope getCurrentSection();
-   ScopeFunction getFunctionAtPosition(Position position);
+   ScopeFunction getFunctionAtPosition(Position position, boolean allowAnonymous);
    Scope getSectionAtPosition(Position position);
    boolean hasScopeTree();
    JsArray<Scope> getScopeTree();
@@ -184,6 +188,8 @@ public interface DocDisplay extends HasValueChangeHandlers<Void>,
    void toggleFold();
    
    void jumpToMatching();
+   void selectToMatching();
+   void expandToMatching();
 
    HandlerRegistration addUndoRedoHandler(UndoRedoHandler handler);
    JavaScriptObject getCleanStateToken();
@@ -221,6 +227,9 @@ public interface DocDisplay extends HasValueChangeHandlers<Void>,
 
    Anchor createAnchor(Position pos);
    
+   int getStartOfCurrentStatement();
+   int getEndOfCurrentStatement();
+   
    void highlightDebugLocation(
          SourcePosition startPos,
          SourcePosition endPos,
@@ -237,9 +246,21 @@ public interface DocDisplay extends HasValueChangeHandlers<Void>,
    void toggleBreakpointAtCursor();
    boolean hasBreakpoints();
    
+   void setAnnotations(JsArray<AceAnnotation> annotations);
+   void showLint(JsArray<LintItem> lint);
+   void clearLint();
+   void removeMarkersAtCursorPosition();
+   void removeMarkersOnCursorLine();
+   
    void setPopupVisible(boolean visible);
    boolean isPopupVisible();
    void selectAll(String needle);
    
    int getTabSize();
+   void insertRoxygenSkeleton();
+   
+   long getLastModifiedTime();
+   long getLastCursorChangedTime();
+   
+   void blockOutdent();
 }

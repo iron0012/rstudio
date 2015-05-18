@@ -17,23 +17,32 @@ package org.rstudio.studio.client.workbench.views.source.editors.text.cpp;
 
 import org.rstudio.core.client.CommandWithArg;
 import org.rstudio.core.client.Invalidation;
+import org.rstudio.core.client.regex.Match;
+import org.rstudio.core.client.regex.Pattern;
 import org.rstudio.studio.client.RStudioGinjector;
 import org.rstudio.studio.client.server.ServerError;
 import org.rstudio.studio.client.server.ServerRequestCallback;
 import org.rstudio.studio.client.workbench.prefs.model.UIPrefs;
+import org.rstudio.studio.client.workbench.snippets.SnippetHelper;
 import org.rstudio.studio.client.workbench.views.console.shell.editor.InputEditorSelection;
+import org.rstudio.studio.client.workbench.views.output.lint.model.LintItem;
+import org.rstudio.studio.client.workbench.views.source.editors.text.AceEditor;
 import org.rstudio.studio.client.workbench.views.source.editors.text.DocDisplay;
 import org.rstudio.studio.client.workbench.views.source.editors.text.ace.Position;
 import org.rstudio.studio.client.workbench.views.source.editors.text.ace.Range;
 import org.rstudio.studio.client.workbench.views.source.model.CppCompletion;
 import org.rstudio.studio.client.workbench.views.source.model.CppCompletionResult;
+import org.rstudio.studio.client.workbench.views.source.model.CppDiagnostic;
 import org.rstudio.studio.client.workbench.views.source.model.CppServerOperations;
+
+import java.util.ArrayList;
 
 import com.google.gwt.core.client.JsArray;
 import com.google.gwt.core.client.Scheduler;
 import com.google.gwt.core.client.Scheduler.ScheduledCommand;
 import com.google.gwt.event.logical.shared.CloseEvent;
 import com.google.gwt.event.logical.shared.CloseHandler;
+import com.google.gwt.user.client.Command;
 import com.google.gwt.user.client.ui.PopupPanel;
 import com.google.inject.Inject;
 
@@ -44,7 +53,8 @@ public class CppCompletionRequest
                                CompletionPosition completionPosition,
                                DocDisplay docDisplay, 
                                Invalidation.Token token,
-                               boolean explicit)
+                               boolean explicit,
+                               Command onTerminated)
    {
       RStudioGinjector.INSTANCE.injectMembers(this);
       
@@ -52,6 +62,8 @@ public class CppCompletionRequest
       completionPosition_ = completionPosition;
       invalidationToken_ = token;
       explicit_ = explicit;
+      onTerminated_ = onTerminated;
+      snippets_ = new SnippetHelper((AceEditor) docDisplay, docPath);
       
       Position pos = completionPosition_.getPosition();
       
@@ -88,60 +100,81 @@ public class CppCompletionRequest
    {
       if (invalidationToken_.isInvalid())
          return;
-      
+
       // if we don't have the completion list back from the server yet
       // then just ignore this (this function will get called again when
       // the request completes)
-      if (completions_ != null)
-      {  
-         // discover text already entered
-         String userTypedText = getUserTypedText();
-         
-         // build list of entries (filter on text already entered)
-         JsArray<CppCompletion> filtered = JsArray.createArray().cast();
-         for (int i = 0; i < completions_.length(); i++)
+      if (completions_ == null)
+         return;
+
+      // discover text already entered
+      String userTypedText = getUserTypedText();
+
+      // build list of entries (filter on text already entered)
+      JsArray<CppCompletion> filtered = JsArray.createArray().cast();
+      for (int i = 0; i < completions_.length(); i++)
+      {
+         CppCompletion completion = completions_.get(i);
+         String typedText = completion.getTypedText();
+         if ((userTypedText.length() == 0) || 
+               typedText.startsWith(userTypedText))
          {
-            CppCompletion completion = completions_.get(i);
-            String typedText = completion.getTypedText();
-            if ((userTypedText.length() == 0) || 
-                 typedText.startsWith(userTypedText))
+            // be more picky for member scope completions because clang
+            // returns a bunch of noise like constructors, destructors, 
+            // compiler generated assignments, etc.
+            if (completionPosition_.getScope() == 
+                  CompletionPosition.Scope.Member)
             {
-               // be more picky for member scope completions because clang
-               // returns a bunch of noise like constructors, destructors, 
-               // compiler generated assignments, etc.
-               if (completionPosition_.getScope() == 
-                                 CompletionPosition.Scope.Member)
-               {
-                  if (completion.getType() == CppCompletion.VARIABLE ||
-                      (completion.getType() == CppCompletion.FUNCTION &&
-                       !typedText.startsWith("operator=")))
-                  {
-                     filtered.push(completion);
-                  }
-                 
-               }
-               else
+               if (completion.getType() == CppCompletion.VARIABLE ||
+                     (completion.getType() == CppCompletion.FUNCTION &&
+                     !typedText.startsWith("operator=")))
                {
                   filtered.push(completion);
                }
+
+            }
+            else
+            {
+               filtered.push(completion);
             }
          }
-         
-         // check for auto-accept
-         if ((filtered.length() == 1) && autoAccept && explicit_)
-         {
-            applyValue(filtered.get(0));
-         }
-         // check for one completion that's already present
-         else if (filtered.length() == 1 && 
-                  filtered.get(0).getTypedText() == getUserTypedText())
-         {
-            terminate();
-         }
-         else
-         {
-            showCompletionPopup(filtered);
-         }
+      }
+      
+      // add in snippets if they are enabled and this is a global scope
+      if (uiPrefs_.enableSnippets().getValue() &&
+          (completionPosition_.getScope() == CompletionPosition.Scope.Global))
+      {
+         ArrayList<String> snippets = snippets_.getAvailableSnippets();
+         for (String snippet : snippets)
+            if (snippet.startsWith(userTypedText))
+            {
+               String content = snippets_.getSnippet(snippet).getContent();
+               content = content.replace("\t", "  ");
+               filtered.unshift(CppCompletion.createSnippetCompletion(snippet,
+                                                                      content));
+            }
+      }
+
+      // check for no hits on explicit request
+      if ((filtered.length() == 0) && explicit_)
+      {
+         showCompletionPopup("(No matches)");
+      }
+      // check for auto-accept
+      else if ((filtered.length() == 1) && autoAccept && explicit_)
+      {
+         applyValue(filtered.get(0));
+      }
+      // check for one completion that's already present
+      else if (filtered.length() == 1 && 
+            filtered.get(0).getTypedText() == getUserTypedText() &&
+            filtered.get(0).getType() != CppCompletion.SNIPPET)
+      {
+         terminate();
+      }
+      else
+      {
+         showCompletionPopup(filtered);
       }
    }
    
@@ -149,6 +182,8 @@ public class CppCompletionRequest
    {
       closeCompletionPopup();
       terminated_ = true;
+      if (onTerminated_ != null)
+         onTerminated_.execute();
    }
    
    public boolean isTerminated()
@@ -169,23 +204,94 @@ public class CppCompletionRequest
       // get the completions
       completions_ = result.getCompletions();
       
-      // check for none found condition on explicit completion
-      if ((completions_.length() == 0) && explicit_)
+      // update the UI
+      updateUI(true);
+   }
+   
+   static Pattern RE_NO_MEMBER_NAMED =
+         Pattern.create("^no member named '(.*)' in '(.*)'$");
+   
+   static Pattern RE_USE_UNDECLARED_IDENTIFIER =
+         Pattern.create("^use of undeclared identifier '(.*)'");
+   
+   private static Range createRangeFromMatch(CppDiagnostic diagnostic,
+                                      Match match)
+   {
+      return Range.create(
+            diagnostic.getPosition().getLine() - 1,
+            diagnostic.getPosition().getColumn() - 1,
+            diagnostic.getPosition().getLine() - 1,
+            diagnostic.getPosition().getColumn() - 1 +
+               match.getGroup(1).length());
+   }
+   
+   private static Range getRangeForSpecializedDiagnostic(CppDiagnostic diagnostic)
+   {
+      String message = diagnostic.getMessage();
+      Match match;
+      
+      match = RE_NO_MEMBER_NAMED.match(message, 0);
+      if (match != null)
+         return createRangeFromMatch(diagnostic, match);
+      
+      match = RE_USE_UNDECLARED_IDENTIFIER.match(message, 0);
+      if (match != null)
+         return createRangeFromMatch(diagnostic, match);
+      
+      return null;
+   }
+   
+   private static Range getRangeForDiagnostic(CppDiagnostic diagnostic)
+   {
+      // Try to get a range for specialized diagnostics
+      Range range;
+      
+      range = getRangeForSpecializedDiagnostic(diagnostic);
+      if (range != null)
+         return range;
+      
+      // Default range -- override if we infer a better range
+      return Range.create(
+            diagnostic.getPosition().getLine() - 1,
+            diagnostic.getPosition().getColumn() - 1,
+            diagnostic.getPosition().getLine() - 1,
+            diagnostic.getPosition().getColumn());
+   }
+   
+   public static JsArray<LintItem> asLintArray(
+         JsArray<CppDiagnostic> diagnostics)
+   {
+      JsArray<LintItem> lint = JsArray.createArray(diagnostics.length()).cast();
+      for (int i = 0; i < diagnostics.length(); i++)
       {
-         showCompletionPopup("(No matches)");
-      }
-      // otherwise just update the ui (apply filter, etc.)
-      else
-      {
-         updateUI(true);
+         CppDiagnostic d = diagnostics.get(i);
+         if (d.getPosition() != null)
+         {
+            Range range = getRangeForDiagnostic(d);
+               lint.set(i, LintItem.create(
+                     range.getStart().getRow(),
+                     range.getStart().getColumn(),
+                     range.getEnd().getRow(),
+                     range.getEnd().getColumn(),
+                     d.getMessage(),
+                     cppDiagnosticSeverityToLintType(d.getSeverity())));
+         }
       }
       
-      // show diagnostics
-      /*
-      JsArray<CppDiagnostic> diagnostics = result.getDiagnostics();
-      for (int i = 0; i < diagnostics.length(); i++)
-         Debug.prettyPrint(diagnostics.get(i));
-      */
+      return lint;
+   }
+   
+   private static String cppDiagnosticSeverityToLintType(int type)
+   {
+      switch (type)
+      {
+         case CppDiagnostic.IGNORED: return "ignored";
+         case CppDiagnostic.NOTE:    return "note";
+         case CppDiagnostic.WARNING: return "warning";
+         case CppDiagnostic.ERROR:   return "error";
+         case CppDiagnostic.FATAL:   return "fatal";
+         default: return "";
+      }
    }
    
    private void showCompletionPopup(String message)
@@ -193,6 +299,8 @@ public class CppCompletionRequest
       if (popup_ == null)
          popup_ = createCompletionPopup();
       popup_.setText(message);
+      
+      docDisplay_.setPopupVisible(true);
      
    }
    
@@ -211,6 +319,9 @@ public class CppCompletionRequest
             applyValue(completion);
          } 
       });
+      
+      // notify document of popup status
+      docDisplay_.setPopupVisible(completions.length() > 0);
    }
       
    
@@ -265,6 +376,12 @@ public class CppCompletionRequest
          return;
       
       terminate();
+      
+      if (completion.getType() == CppCompletion.SNIPPET)
+      {
+         snippets_.applySnippet(getUserTypedText(), completion.getTypedText());
+         return;
+      }
      
       String insertText = completion.getTypedText();
       if (completion.getType() == CppCompletion.FUNCTION &&
@@ -315,10 +432,13 @@ public class CppCompletionRequest
    private final boolean explicit_;
    private final Invalidation.Token invalidationToken_;
    
+   private final SnippetHelper snippets_;
+   
    private final CompletionPosition completionPosition_;
    
    private CppCompletionPopupMenu popup_;
    private JsArray<CppCompletion> completions_;
    
    private boolean terminated_ = false;
+   private Command onTerminated_ = null;
 }

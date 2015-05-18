@@ -788,16 +788,25 @@ bool hasBinaryMimeType(const FilePath& filePath)
           boost::algorithm::starts_with(mimeType, "video/");
 }
 
+bool isJsonFile(const FilePath& filePath)
+{
+   std::string mimeType = filePath.mimeContentType();
+   return boost::algorithm::ends_with(mimeType, "json");
+}
+
 } // anonymous namespace
 
 bool isTextFile(const FilePath& targetPath)
 {
    if (hasTextMimeType(targetPath))
       return true;
+   
+   if (isJsonFile(targetPath))
+      return true;
 
    if (hasBinaryMimeType(targetPath))
       return false;
-
+   
    if (targetPath.size() == 0)
       return true;
 
@@ -1066,6 +1075,49 @@ std::string packageNameForSourceFile(const core::FilePath& sourceFilePath)
    }
 }
 
+bool isUnmonitoredPackageSourceFile(const FilePath& filePath)
+{
+   // if it's in the current package then it's fine
+   using namespace projects;
+   if (projectContext().hasProject() &&
+      (projectContext().config().buildType == r_util::kBuildTypePackage) &&
+       filePath.isWithin(projectContext().buildTargetPath()))
+   {
+      return false;
+   }
+
+   // ensure we are dealing with a directory
+   FilePath dir = filePath;
+   if (!dir.isDirectory())
+      dir = filePath.parent();
+
+   // see if one the file's parent directories has a DESCRIPTION
+   while (!dir.empty())
+   {
+      FilePath descPath = dir.childPath("DESCRIPTION");
+      if (descPath.exists())
+      {
+         // get path relative to package dir
+         std::string relative = filePath.relativePath(dir);
+         if (boost::algorithm::starts_with(relative, "R/") ||
+             boost::algorithm::starts_with(relative, "src/") ||
+             boost::algorithm::starts_with(relative, "inst/include/"))
+         {
+            return true;
+         }
+         else
+         {
+            return false;
+         }
+      }
+
+      dir = dir.parent();
+   }
+
+   return false;
+}
+
+
 SEXP rs_packageNameForSourceFile(SEXP sourceFilePathSEXP)
 {
    r::sexp::Protect protect;
@@ -1217,7 +1269,8 @@ bool fileListingFilter(const core::FileInfo& fileInfo)
    core::FilePath filePath(fileInfo.absolutePath());
    std::string ext = filePath.extensionLowerCase();
    std::string name = filePath.filename();
-   if (ext == ".rprofile" ||
+   if (ext == ".r" ||
+       ext == ".rprofile" ||
        ext == ".rbuildignore" ||
        ext == ".rdata"    ||
        ext == ".rhistory" ||
@@ -1231,7 +1284,8 @@ bool fileListingFilter(const core::FileInfo& fileInfo)
       return true;
    }
    else if (userSettings().hideObjectFiles() &&
-            (ext == ".o" || ext == ".so" || ext == ".dll"))
+            (ext == ".o" || ext == ".so" || ext == ".dll") &&
+            filePath.parent().filename() == "src")
    {
       return false;
    }

@@ -16,6 +16,7 @@
 package org.rstudio.studio.client.workbench.views.source.editors.text.cpp;
 
 import org.rstudio.core.client.StringUtil;
+import org.rstudio.studio.client.RStudioGinjector;
 import org.rstudio.studio.client.workbench.views.source.editors.text.DocDisplay;
 import org.rstudio.studio.client.workbench.views.source.model.CppCompletionText;
 
@@ -45,13 +46,17 @@ public class CppCompletionToolTip extends PopupPanel
    public CppCompletionToolTip(String text, String comment)
    {
       super(true);
+      CppCompletionResources.Styles styles = 
+                              CppCompletionResources.INSTANCE.styles();
+      
       panel_ = new HorizontalPanel();
-      panel_.addStyleName(CppCompletionResources.INSTANCE.styles().toolTip());
+      panel_.addStyleName(styles.toolTip());
       
       VerticalPanel textPanel = new VerticalPanel();
       textPanel.add(label_ = new Label()); 
+      label_.addStyleName(styles.toolTipText());
       commentLabel_ = new Label();
-      commentLabel_.addStyleName(CppCompletionResources.INSTANCE.styles().commentText());
+      commentLabel_.addStyleName(styles.commentText());
       commentLabel_.setVisible(false);
       textPanel.add(commentLabel_);
       
@@ -108,7 +113,13 @@ public class CppCompletionToolTip extends PopupPanel
       {
          if (docDisplay.getLine(lineNumberAbove).length() > 
              docDisplay.getLength(docDisplay.getCurrentLineNum()))
-           topPad = 18;
+         {
+            Double fontPad = RStudioGinjector.INSTANCE.getUIPrefs()
+                  .fontSize().getValue();
+            if (fontPad >= 13)
+               fontPad *= 1.3;
+            topPad = topPad + fontPad.intValue();
+         }
       }
       return topPad;
    }

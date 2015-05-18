@@ -34,7 +34,7 @@ AsyncRProcess::AsyncRProcess():
 void AsyncRProcess::start(const char* rCommand, 
                           const core::FilePath& workingDir, 
                           AsyncRProcessOptions rOptions,
-                          const std::vector<core::FilePath>& rSourceFiles)
+                          std::vector<core::FilePath> rSourceFiles)
 {
    // R binary
    core::FilePath rProgramPath;
@@ -45,14 +45,38 @@ void AsyncRProcess::start(const char* rCommand,
       onCompleted(EXIT_FAILURE);
       return;
    }
+   
+   // core R files for augmented async processes
+   if (rOptions & R_PROCESS_AUGMENTED)
+   {
+      // R files we wish to source to provide functionality to async process
+      const core::FilePath modulesPath =
+            session::options().modulesRSourcePath();
+      
+      const core::FilePath rPath =
+            session::options().coreRSourcePath();
+      
+      const core::FilePath rTools =  rPath.childPath("Tools.R");
+      const core::FilePath sessionCodeTools = modulesPath.childPath("SessionCodeTools.R");
+      const core::FilePath sessionRCompletions = modulesPath.childPath("SessionRCompletions.R");
+      
+      rSourceFiles.push_back(rTools);
+      rSourceFiles.push_back(sessionCodeTools);
+      rSourceFiles.push_back(sessionRCompletions);
+   }
 
    // args
    std::vector<std::string> args;
    args.push_back("--slave");
    if (rOptions & R_PROCESS_VANILLA)
       args.push_back("--vanilla");
+   if (rOptions & R_PROCESS_NO_RDATA)
+   {
+      args.push_back("--no-save");
+      args.push_back("--no-restore");
+   }
    args.push_back("-e");
-
+   
    bool needsQuote = false;
 
    // On Windows, we turn the vector of strings into a single
@@ -71,29 +95,13 @@ void AsyncRProcess::start(const char* rCommand,
 
    if (rSourceFiles.size())
    {
-      // Use shims for the main RStudio functions
-      command << "options(error = traceback); ";
-
-      command << ".rs.Env <- attach(NULL, name = 'tools:rstudio'); ";
-
-      command << ".rs.addFunction <- function(name, FN, attrs = list()) {"
-              << "   fullName = paste('.rs.', name, sep=''); "
-              << "   for (attrib in names(attrs)) "
-              << "     attr(FN, attrib) <- attrs[[attrib]];"
-              << "   assign(fullName, FN, .rs.Env); "
-              << "   environment(.rs.Env[[fullName]]) <- .rs.Env; "
-              << "};";
-
-      // similarly for .rs.addJsonRpcHandler
-      command << ".rs.addJsonRpcHandler <- function(name, FN) {"
-              << "   .rs.addFunction(paste('rpc.', name, sep = ''), FN, TRUE);"
-              << "};";
-
       // add in the r source files requested
       for (std::vector<core::FilePath>::const_iterator it = rSourceFiles.begin();
            it != rSourceFiles.end();
            ++it)
+      {
          command << "source('" << it->absolutePath() << "');";
+      }
       
       command << rCommand;
    }

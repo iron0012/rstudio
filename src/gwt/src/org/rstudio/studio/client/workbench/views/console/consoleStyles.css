@@ -2,7 +2,7 @@
 @eval fixedWidthFont org.rstudio.core.client.theme.ThemeFonts.getFixedWidthFont();
 
 @external popupContent;
-@external ace_sb, ace_cursor, ace_hidden;
+@external ace_sb, ace_cursor, ace_hidden, ace_tooltip;
 
 .console {
    font-family: fixedWidthFont;
@@ -25,7 +25,10 @@
    white-space: pre-wrap !important;
    word-break: break-all;
    margin: 0;
+   -ms-user-select: text;
+   -moz-user-select: text;
    -webkit-user-select: text;
+   user-select: text
 }
 .output .command, .input {
 }
@@ -42,7 +45,10 @@
 
 .console .prompt {
    white-space: pre;
+   -ms-user-select: text;
+   -moz-user-select: text;
    -webkit-user-select: text;
+   user-select: text;
 }
 
 .completionPopup {
@@ -142,4 +148,10 @@
 	padding: 4px;
 	font-style: italic;
 	color: #888888;
+}
+
+.ace_tooltip {
+	max-width: 400px;
+	max-height: 300px;
+}
 }

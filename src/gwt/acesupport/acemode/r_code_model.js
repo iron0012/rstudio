@@ -18,6 +18,7 @@ define("mode/r_code_model", function(require, exports, module) {
 var Range = require("ace/range").Range;
 var TokenIterator = require("ace/token_iterator").TokenIterator;
 var RTokenCursor = require("mode/token_cursor").RTokenCursor;
+var Utils = require("mode/utils");
 
 var $verticallyAlignFunctionArgs = false;
 
@@ -39,7 +40,8 @@ function isOneOf(object, array)
 var ScopeManager = require("mode/r_scope_tree").ScopeManager;
 var ScopeNode = require("mode/r_scope_tree").ScopeNode;
 
-var RCodeModel = function(session, tokenizer, statePattern, codeBeginPattern) {
+var RCodeModel = function(session, tokenizer,
+                          statePattern, codeBeginPattern, codeEndPattern) {
 
    this.$session = session;
    this.$doc = session.getDocument();
@@ -48,6 +50,7 @@ var RCodeModel = function(session, tokenizer, statePattern, codeBeginPattern) {
    this.$endStates = new Array(this.$doc.getLength());
    this.$statePattern = statePattern;
    this.$codeBeginPattern = codeBeginPattern;
+   this.$codeEndPattern = codeEndPattern;
    this.$scopes = new ScopeManager(ScopeNode);
 
    var that = this;
@@ -58,6 +61,8 @@ var RCodeModel = function(session, tokenizer, statePattern, codeBeginPattern) {
 };
 
 (function () {
+
+   var contains = Utils.contains;
 
    this.getTokenCursor = function() {
       return new RTokenCursor(this.$tokens, 0, 0, this);
@@ -92,7 +97,6 @@ var RCodeModel = function(session, tokenizer, statePattern, codeBeginPattern) {
    var $normalizeAndTruncate = function(text, width) {
       return $truncate($normalizeWhitespace(text), width);
    };
-   
 
    function pFunction(t)
    {
@@ -349,7 +353,7 @@ var RCodeModel = function(session, tokenizer, statePattern, codeBeginPattern) {
             continue;
          }
 
-         if (lookingAtComma(cursor))
+         if (cursor.currentValue() === ",")
          {
             if (!cursor.moveToNextToken())
                return false;
@@ -466,12 +470,8 @@ var RCodeModel = function(session, tokenizer, statePattern, codeBeginPattern) {
          // If this identifier is a dplyr 'mutate'r, then parse
          // those variables.
          var value = clone.currentValue();
-         if ($dplyrMutaterVerbs.some(function(x) {
-            return x === value;
-         }))
-         {
+         if (contains($dplyrMutaterVerbs, value))
             addDplyrArguments(clone.cloneCursor(), data, tokenCursor, value);
-         }
 
          // Move off of identifier, on to new infix operator.
          // Note that we may already be at the start of the document,
@@ -629,10 +629,6 @@ var RCodeModel = function(session, tokenizer, statePattern, codeBeginPattern) {
       
    };
 
-   function lookingAtComma(cursor) {
-      return /,\s*$/.test(cursor.currentValue()) && cursor.currentType() === "text";
-   }
-
    // Get function arguments, starting at the start of a function definition, e.g.
    //
    // x <- function(a = 1, b = 2, c = list(a = 1, b = 2), ...)
@@ -667,9 +663,9 @@ var RCodeModel = function(session, tokenizer, statePattern, codeBeginPattern) {
          // type 'text' and ends with a comma.
          // Once we encounter such a token, we look ahead to find an
          // identifier (it signifies an argument name)
-         if (lookingAtComma(tokenCursor))
+         if (tokenCursor.currentValue() === ",")
          {
-            while (lookingAtComma(tokenCursor))
+            while (tokenCursor.currentValue() === ",")
                if (!tokenCursor.moveToNextToken())
                   break;
             
@@ -1057,19 +1053,24 @@ var RCodeModel = function(session, tokenizer, statePattern, codeBeginPattern) {
       return this.getNextLineIndent(
          "start",
          this.$getLine(row),
-         this.$session.getTabString()
+         this.$session.getTabString(),
+         row
       );
    };
 
-   // NOTE: 'row' is used purely for testing. If it's non-numeric then we need to
-   // set it with the current cursor position.
+   // NOTE: 'row' is an optional parameter, and is not used by default
+   // on enter keypresses. When unset, we attempt to indent based on
+   // the cursor position (which is what we want for 'enter'
+   // keypresses).  However, for reindentation of particular lines (or
+   // blocks), we need the row parameter in order to choose which row
+   // we wish to reindent.
    this.getNextLineIndent = function(state, line, tab, row)
    {
-      if (state == "qstring" || state == "qqstring")
+      if (Utils.endsWith(state, "qstring"))
          return "";
 
-      // NOTE: Pressing enter will already have moved the cursor to the next row,
-      // so we need to push that back a single row.
+      // NOTE: Pressing enter will already have moved the cursor to
+      // the next row, so we need to push that back a single row.
       if (typeof row !== "number")
          row = this.$session.getSelection().getCursor().row - 1;
 
@@ -1100,11 +1101,6 @@ var RCodeModel = function(session, tokenizer, statePattern, codeBeginPattern) {
          // jcheng 12/7/2013: It doesn't look to me like $tokenizeUpToRow can return
          // anything but true, at least not today.
          if (!this.$tokenizeUpToRow(row))
-            return defaultIndent;
-
-         // If we're in an Sweave/Rmd/etc. document and this line isn't R, then
-         // don't auto-indent
-         if (this.$statePattern && !this.$statePattern.test(state))
             return defaultIndent;
 
          // The significant token (no whitespace, comments) that most immediately
@@ -1194,6 +1190,13 @@ var RCodeModel = function(session, tokenizer, statePattern, codeBeginPattern) {
          do
          {
             var currentValue = tokenCursor.currentValue();
+
+            if (tokenCursor.isAtStartOfNewExpression(false))
+            {
+               return this.$getIndent(
+                  this.$doc.getLine(tokenCursor.$row)
+               ) + continuationIndent;
+            }
              
             // Walk over matching braces ('()', '{}', '[]')
             if (tokenCursor.bwdToMatchingToken())
@@ -1207,9 +1210,7 @@ var RCodeModel = function(session, tokenizer, statePattern, codeBeginPattern) {
 
             // If we find an open parenthesis or bracket, we
             // can use this to provide the indentation context.
-            if (["[", "("].some(function(x) {
-               return x === tokenCursor.currentValue();
-            }))
+            if (contains(["[", "("], currentValue))
             {
                var openBracePos = tokenCursor.currentPosition();
                var nextTokenPos = null;
@@ -1345,10 +1346,10 @@ var RCodeModel = function(session, tokenizer, statePattern, codeBeginPattern) {
          // pass through here.
          if (!tokenCursor.moveToPosition(startPos))
             return "";
-         
+
          do
          {
-            // Walk over matching parens
+            // Walk over matching parens.
             if (tokenCursor.bwdToMatchingToken())
                continue;
             
@@ -1360,7 +1361,7 @@ var RCodeModel = function(session, tokenizer, statePattern, codeBeginPattern) {
                   tokenCursor.currentPosition()
                ) + tab + continuationIndent;
             }
-                  
+
             // If we found an assignment token, use that for indentation
             if (pAssign(tokenCursor.currentToken()))
             {
@@ -1398,9 +1399,10 @@ var RCodeModel = function(session, tokenizer, statePattern, codeBeginPattern) {
                          clone.moveToPreviousToken())
                      {
                         var currentValue = clone.currentValue();
-                        if (["if", "for", "while", "repeat", "else"].some(function(x) {
-                           return x === currentValue;
-                        }))
+                        if (contains(
+                           ["if", "for", "while", "repeat", "else"],
+                           currentValue
+                        ))
                         {
                            return this.$getIndent(
                               this.$doc.getLine(clone.$row)
@@ -1604,8 +1606,10 @@ var RCodeModel = function(session, tokenizer, statePattern, codeBeginPattern) {
          
          assumeGood = false;
 
-         var state = (row === 0) ? 'start' : this.$endStates[row-1];
-         var lineTokens = this.$tokenizer.getLineTokens(this.$getLine(row), state);
+         var state = (row === 0) ? 'start' : this.$endStates[row - 1];
+         var line = this.$getLine(row);
+         var lineTokens = this.$tokenizer.getLineTokens(line, state);
+
          if (!this.$statePattern ||
              this.$statePattern.test(lineTokens.state) ||
              this.$statePattern.test(state))

@@ -158,6 +158,7 @@ public interface ThemeResources extends ClientBundle
    @Source("workspaceSectionHeaderTile.png")
    DataResource workspaceSectionHeaderTile();
    ImageResource zoomDataset();
+   ImageResource viewFunctionCode();
 
    @Source("inlineEditIcon.png")
    DataResource inlineEditIcon();
@@ -171,10 +172,19 @@ public interface ThemeResources extends ClientBundle
 
    ImageResource help();
    
-   ImageResource warningSmall();
    ImageResource infoSmall();
+   ImageResource warningSmall();
    ImageResource errorSmall();
-
+   
+   ImageResource syntaxInfo();
+   ImageResource syntaxWarning();
+   ImageResource syntaxError();
+   
+   ImageResource syntaxInfoDark();
+   ImageResource syntaxWarningDark();
+   ImageResource syntaxErrorDark();
+   
+   
    ImageResource codeTransform();
 
    ImageResource closeChevron();
@@ -194,6 +204,8 @@ public interface ThemeResources extends ClientBundle
    
    @Source("macCheck.png")
    DataResource macCheck();
+   @Source("radioButtonOn.png")
+   DataResource radioButtonOn();
    
    @Source("handCursor.png")
    DataResource handCursor();

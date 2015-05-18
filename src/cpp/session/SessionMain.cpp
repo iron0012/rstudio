@@ -39,6 +39,7 @@
 
 #include <core/Error.hpp>
 #include <core/BoostThread.hpp>
+#include <core/ConfigUtils.hpp>
 #include <core/FilePath.hpp>
 #include <core/Exec.hpp>
 #include <core/Scope.hpp>
@@ -63,6 +64,8 @@
 #include <core/system/ParentProcessMonitor.hpp>
 #include <core/system/FileMonitor.hpp>
 #include <core/text/TemplateFilter.hpp>
+#include <core/r_util/RSessionContext.hpp>
+#include <core/r_util/REnvironment.hpp>
 
 #include <r/RJsonRpc.hpp>
 #include <r/RExec.hpp>
@@ -94,6 +97,8 @@ extern "C" const char *locale2charset(const char *);
 
 #include "SessionClientEventQueue.hpp"
 #include "SessionClientEventService.hpp"
+
+#include <session/SessionRUtil.hpp>
 
 #include "modules/SessionAbout.hpp"
 #include "modules/SessionAgreement.hpp"
@@ -137,8 +142,9 @@ extern "C" const char *locale2charset(const char *);
 #include "modules/rmarkdown/SessionRMarkdown.hpp"
 #include "modules/shiny/SessionShiny.hpp"
 #include "modules/viewer/SessionViewer.hpp"
-#include "modules/SessionLinter.hpp"
+#include "modules/SessionDiagnostics.hpp"
 #include "modules/SessionMarkers.hpp"
+#include "modules/SessionSnippets.hpp"
 
 #include "modules/SessionGit.hpp"
 #include "modules/SessionSVN.hpp"
@@ -360,51 +366,6 @@ FilePath getInitialWorkingDirectory()
    {
       // if not then just return default working dir
       return getDefaultWorkingDirectory();
-   }
-}
-
-std::string switchToProject(const http::Request& request)
-{
-   std::string referrer = request.headerValue("referer");
-   std::string baseURL, queryString;
-   http::URL(referrer).split(&baseURL, &queryString);
-   http::Fields fields;
-   http::util::parseQueryString(queryString, &fields);
-   std::string project = http::util::fieldValue(fields, "project");
-
-   if (!project.empty())
-   {
-      // resolve project
-      FilePath projectPath = module_context::resolveAliasedPath(project);
-      if ((projectPath.extensionLowerCase() != ".rproj") &&
-          projectPath.isDirectory())
-      {
-         FilePath discoveredPath = r_util::projectFromDirectory(projectPath);
-         if (!discoveredPath.empty())
-            projectPath = discoveredPath;
-      }
-      project = module_context::createAliasedPath(projectPath);
-
-      // check if we're already in this project
-      if (projects::projectContext().hasProject())
-      {
-         std::string currentProject = module_context::createAliasedPath(
-                                          projects::projectContext().file());
-         if (project != currentProject)
-            return project;
-         else
-            return std::string();
-      }
-      // no project active so need to switch
-      else
-      {
-         return project;
-      }
-   }
-   // no project in the query string
-   else
-   {
-      return std::string();
    }
 }
 
@@ -638,9 +599,6 @@ void handleClientInit(const boost::function<void()>& initFunction,
       core::system::getenv("RSTUDIO_DISABLE_EXTERNAL_PUBLISH").empty() &&
       allowPublish;
 
-   // check whether a switch project is required
-   sessionInfo["switch_to_project"] = switchToProject(ptrConnection->request());
-
    sessionInfo["environment_state"] = modules::environment::environmentStateAsJson();
    sessionInfo["error_state"] = modules::errors::errorStateAsJson();
 
@@ -654,7 +612,9 @@ void handleClientInit(const boost::function<void()>& initFunction,
 
    sessionInfo["clang_available"] = modules::clang::isAvailable();
 
-   sessionInfo["show_help_home"] = options.showHelpHome();
+   // don't show help home until we figure out a sensible heuristic
+   // sessionInfo["show_help_home"] = options.showHelpHome();
+   sessionInfo["show_help_home"] = false;
 
    // send response  (we always set kEventsPending to false so that the client
    // won't poll for events until it is ready)
@@ -922,7 +882,7 @@ void handleConnection(boost::shared_ptr<HttpConnection> ptrConnection,
             // note switch to project
             if (!switchToProject.empty())
             {
-               rsession::projects::projectContext().setNextSessionProject(
+               rsession::projects::projectContext().setSwitchToProjectPath(
                                                                   switchToProject);
             }
 
@@ -1609,7 +1569,10 @@ Error rInit(const rstudio::r::session::RInitInfo& rInitInfo)
       (addins::initialize)
 
       // console processes
-       (console_process::initialize)
+      (console_process::initialize)
+         
+      // r utils
+      (r_utils::initialize)
 
       // modules with c++ implementations
       (modules::spelling::initialize)
@@ -1655,9 +1618,10 @@ Error rInit(const rstudio::r::session::RInitInfo& rInitInfo)
       (modules::rsconnect::initialize)
       (modules::packrat::initialize)
       (modules::rhooks::initialize)
-      (modules::r_completions::initialize)
-      (modules::linter::initialize)
+      (modules::r_packages::initialize)
+      (modules::diagnostics::initialize)
       (modules::markers::initialize)
+      (modules::snippets::initialize)
 
       // workers
       (workers::web_request::initialize)
@@ -2221,7 +2185,7 @@ void rQuit()
 
    // enque a quit event
    bool switchProjects =
-         !rsession::projects::projectContext().nextSessionProject().empty();
+         !rsession::projects::projectContext().switchToProjectPath().empty();
    ClientEvent quitEvent(kQuit, switchProjects);
    rsession::clientEventQueue().add(quitEvent);
 }
@@ -2774,6 +2738,7 @@ int sessionExitFailure(const core::Error& error,
    return EXIT_FAILURE;
 }
 
+
 std::string ctypeEnvName()
 {
    if (!core::system::getenv("LC_ALL").empty())
@@ -2872,7 +2837,8 @@ int main (int argc, char * const argv[])
       // from the main thread vs. child threads)
       s_mainThreadId = boost::this_thread::get_id();
 
-      // determine character set
+      // ensure LANG and UTF-8 character set
+      r_util::ensureLang();
       s_printCharsetWarning = !ensureUtf8Charset();
       
       // read program options
@@ -2936,6 +2902,14 @@ int main (int argc, char * const argv[])
       {
          // do the same for port number, for rpostback in rdesktop configs
          core::system::setenv(kRSessionPortNumber, options.wwwPort());
+      }
+
+      // provide session stream for postback in server mode
+      if (serverMode)
+      {
+         r_util::SessionContext context = options.sessionContext();
+         std::string stream = r_util::sessionContextToStreamFile(context);
+         core::system::setenv(kRStudioSessionStream, stream);
       }
 
       // set the standalone port if we are running in standalone mode

@@ -126,6 +126,9 @@ extern const int kDataViewChanged;
 extern const int kViewFunction;
 extern const int kMarkersChanged;
 extern const int kEnableRStudioConnect;
+extern const int kUpdateGutterMarkers;
+extern const int kSnippetsChanged;
+extern const int kJumpToFunction;
 }
    
 class ClientEvent

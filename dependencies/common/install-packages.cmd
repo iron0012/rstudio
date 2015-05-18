@@ -2,10 +2,14 @@
 
 setlocal
 
+REM Ensure (the default install location for) Git is on the PATH here. Having
+REM this directory on the PATH by default can be a pain because Rtools (and its
+REM competing tools) can compete with that directory.
+set "PATH=C:\Program Files (x86)\Git\bin;%PATH%"
+
 set PATH=%PATH%;%CD%\tools
 
-call:install rmarkdown master
-call:install rsconnect master
+call:install rsconnect v0.99
 
 GOTO:EOF
 

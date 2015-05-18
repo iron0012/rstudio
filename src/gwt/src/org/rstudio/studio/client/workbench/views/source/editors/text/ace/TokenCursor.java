@@ -40,6 +40,21 @@ public class TokenCursor extends JavaScriptObject
       return this.currentValue();
    }-*/;
    
+   public final String nextValue(int offset)
+   {
+      TokenCursor clone = cloneCursor();
+      for (int i = 0; i < offset; i++)
+         if (!clone.moveToNextToken())
+            return "";
+      
+      return clone.currentValue();
+   }
+   
+   public final String nextValue()
+   {
+      return nextValue(1);
+   }
+   
    public native final String currentType() /*-{
       return this.currentType();
    }-*/;
@@ -70,6 +85,10 @@ public class TokenCursor extends JavaScriptObject
    
    public native final boolean moveToPosition(Position position) /*-{
       return this.moveToPosition(position);
+   }-*/;
+   
+   public native final boolean moveToPosition(Position position, boolean rightInclusive) /*-{
+      return this.moveToPosition(position, rightInclusive);
    }-*/;
    
    public native final boolean findOpeningBracket(String token, boolean failOnOpenBrace) /*-{
@@ -119,6 +138,31 @@ public class TokenCursor extends JavaScriptObject
    
    public native final boolean findStartOfEvaluationContext() /*-{
       return this.findStartOfEvaluationContext();
+   }-*/;
+   
+   public native final boolean moveToStartOfCurrentStatement() /*-{
+      return this.moveToStartOfCurrentStatement &&
+             this.moveToStartOfCurrentStatement();
+   }-*/;
+   
+   public native final boolean moveToEndOfCurrentStatement() /*-{
+      return this.moveToEndOfCurrentStatement &&
+             this.moveToEndOfCurrentStatement();
+   }-*/;
+   
+   public native final boolean isLeftAssign() /*-{
+      var value = this.currentValue();
+      return value === "<-" || value === "=";
+   }-*/;
+   
+   public native final boolean isLeftBracket() /*-{
+      var value = this.currentValue();
+      return ["(", "[", "{"].some(function(x) { return x === value; });
+   }-*/;
+   
+   public native final boolean isExtractionOperator() /*-{
+      var value = this.currentValue();
+      return ["$", "@", "?", "~"].some(function(x) { return x === value; });
    }-*/;
    
 }

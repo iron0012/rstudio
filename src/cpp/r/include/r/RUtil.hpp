@@ -45,6 +45,9 @@ core::Error iconvstr(const std::string& value,
                      bool allowSubstitution,
                      std::string* result);
 
+bool isRKeyword(const std::string& name);
+bool isWindowsOnlyFunction(const std::string& name);
+
 } // namespace util   
 } // namespace r
 } // namespace rstudio
